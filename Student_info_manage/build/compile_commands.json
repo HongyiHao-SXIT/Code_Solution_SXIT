@@ -1,0 +1,56 @@
+[
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_core.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_core.dir\\AuthControl.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\AuthControl.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/AuthControl.cpp",
+  "output": "src/CMakeFiles/student_info_core.dir/AuthControl.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_core.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_core.dir\\Course.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\Course.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/Course.cpp",
+  "output": "src/CMakeFiles/student_info_core.dir/Course.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_core.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_core.dir\\Grade.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\Grade.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/Grade.cpp",
+  "output": "src/CMakeFiles/student_info_core.dir/Grade.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_core.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_core.dir\\Menu.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\Menu.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/Menu.cpp",
+  "output": "src/CMakeFiles/student_info_core.dir/Menu.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_core.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_core.dir\\User.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\User.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/User.cpp",
+  "output": "src/CMakeFiles/student_info_core.dir/User.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/Student_info_manage.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\Student_info_manage.dir\\main.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\src\\main.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/src/main.cpp",
+  "output": "src/CMakeFiles/Student_info_manage.dir/main.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/test",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_tests.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_tests.dir\\test_main.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\test\\test_main.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/test/test_main.cpp",
+  "output": "test/CMakeFiles/student_info_tests.dir/test_main.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/test",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_tests.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_tests.dir\\course_test.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\test\\course_test.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/test/course_test.cpp",
+  "output": "test/CMakeFiles/student_info_tests.dir/course_test.cpp.obj"
+},
+{
+  "directory": "D:/Projects/Code_Solution_SXIT/Student_info_manage/build/test",
+  "command": "D:\\msys64\\ucrt64\\bin\\g++.exe  @CMakeFiles/student_info_tests.dir/includes_CXX.rsp -std=c++20 -Wall -Wextra -Wpedantic -o CMakeFiles\\student_info_tests.dir\\grade_test.cpp.obj -c D:\\Projects\\Code_Solution_SXIT\\Student_info_manage\\test\\grade_test.cpp",
+  "file": "D:/Projects/Code_Solution_SXIT/Student_info_manage/test/grade_test.cpp",
+  "output": "test/CMakeFiles/student_info_tests.dir/grade_test.cpp.obj"
+}
+]

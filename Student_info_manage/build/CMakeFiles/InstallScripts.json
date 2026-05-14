@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/Projects/Code_Solution_SXIT/Student_info_manage/build/cmake_install.cmake",
+		"D:/Projects/Code_Solution_SXIT/Student_info_manage/build/src/cmake_install.cmake",
+		"D:/Projects/Code_Solution_SXIT/Student_info_manage/build/test/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

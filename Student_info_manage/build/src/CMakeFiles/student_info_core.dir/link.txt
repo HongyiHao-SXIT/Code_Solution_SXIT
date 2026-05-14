@@ -1,0 +1,2 @@
+D:\msys64\ucrt64\bin\ar.exe qc libstudent_info_core.a CMakeFiles/student_info_core.dir/AuthControl.cpp.obj CMakeFiles/student_info_core.dir/Course.cpp.obj CMakeFiles/student_info_core.dir/Grade.cpp.obj CMakeFiles/student_info_core.dir/Menu.cpp.obj CMakeFiles/student_info_core.dir/User.cpp.obj
+D:\msys64\ucrt64\bin\ranlib.exe libstudent_info_core.a

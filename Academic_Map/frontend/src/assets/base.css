@@ -1,0 +1,41 @@
+:root {
+  --scholar-ink: #16304f;
+  --scholar-muted: #60758f;
+  --scholar-blue: #1a73e8;
+  --scholar-green: #0f9d58;
+  --scholar-bg: #f6f8fc;
+  --scholar-card: rgba(255, 255, 255, 0.92);
+  --scholar-border: rgba(125, 150, 185, 0.22);
+  --scholar-shadow: 0 20px 50px rgba(18, 42, 71, 0.08);
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-sans: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  font-weight: normal;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--scholar-ink);
+  background:
+    radial-gradient(circle at top, rgba(26, 115, 232, 0.12), transparent 28%),
+    linear-gradient(180deg, #f9fbff 0%, var(--scholar-bg) 52%, #eef3fa 100%);
+  line-height: 1.6;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
