@@ -1,14 +1,14 @@
 <?php
 
 class University {
-    var $id;
-    var $QSrank;
-    var $USnewsrank;
-    var $country;
-    var $city;
-    var $name;
+    public int $id;
+    public ?int $QSrank;
+    public ?int $USnewsrank;
+    public ?string $country;
+    public ?string $city;
+    public string $name;
 
-    function __construct($id, $QSrank, $USnewsrank, $country, $city, $name) {
+    function __construct(int $id, ?int $QSrank, ?int $USnewsrank, ?string $country, ?string $city, string $name) {
         $this->id = $id;
         $this->QSrank = $QSrank;
         $this->USnewsrank = $USnewsrank;
@@ -17,51 +17,51 @@ class University {
         $this->name = $name;
     }
 
-    function getId() {
+    function getId(): int {
         return $this->id;
     }
 
-    function getQSrank() {
+    function getQSrank(): ?int {
         return $this->QSrank;
     }
 
-    function getUSnewsrank() {
+    function getUSnewsrank(): ?int {
         return $this->USnewsrank;
     }
 
-    function getCountry() {
+    function getCountry(): ?string {
         return $this->country;
     }
 
-    function getCity() {
+    function getCity(): ?string {
         return $this->city;
     }
 
-    function getName() {
+    function getName(): string {
         return $this->name;
     }
 
-    function setId($id) {
+    function setId(int $id): void {
         $this->id = $id;
     }
 
-    function setQSrank($QSrank) {
+    function setQSrank(?int $QSrank): void {
         $this->QSrank = $QSrank;
     }
 
-    function setUSnewsrank($USnewsrank) {
+    function setUSnewsrank(?int $USnewsrank): void {
         $this->USnewsrank = $USnewsrank;
     }
 
-    function setCountry($country) {
+    function setCountry(?string $country): void {
         $this->country = $country;
     }
 
-    function setCity($city) {
+    function setCity(?string $city): void {
         $this->city = $city;
     }
 
-    function setName($name) {
+    function setName(string $name): void {
         $this->name = $name;
     }
     

@@ -13,6 +13,23 @@ let map = null
 let pollTimer = null
 const markers = {}
 
+function resetRobotForm() {
+  deviceId.value = ''
+  name.value = ''
+}
+
+async function runRobotAction(action, successMessage, errorMessage, options = {}) {
+  try {
+    await action()
+    pushFlash(successMessage, 'success')
+    if (options.reload !== false) {
+      await loadRobots()
+    }
+  } catch (error) {
+    pushFlash(error.message || errorMessage, 'error')
+  }
+}
+
 function buildRobotPopup(robot) {
   return `<b>${escapeHtml(robot.name || '-')}</b><br>${escapeHtml(robot.device_id || '-')}`
 }
@@ -35,7 +52,7 @@ function renderMarkers(robotList) {
       return
     }
     markers[markerId] = L.marker([robot.lat, robot.lng], {
-      icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot"></span>', iconSize: [10, 10], iconAnchor: [5, 5] }),
+      icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot map-dot-robot"></span>', iconSize: [10, 10], iconAnchor: [5, 5] }),
     }).addTo(map).bindPopup(buildRobotPopup(robot))
     markers[markerId].on('click', () => setSelectedRobot(robot.id))
   })
@@ -58,15 +75,14 @@ async function loadRobots() {
 }
 
 async function addRobot() {
-  try {
-    await postJson('/api/robot/register', { device_id: deviceId.value.trim(), name: name.value.trim() })
-    pushFlash('机器人添加成功', 'success')
-    deviceId.value = ''
-    name.value = ''
-    await loadRobots()
-  } catch (error) {
-    pushFlash(error.message || '添加失败', 'error')
-  }
+  await runRobotAction(
+    async () => {
+      await postJson('/api/robot/register', { device_id: deviceId.value.trim(), name: name.value.trim() })
+      resetRobotForm()
+    },
+    '机器人添加成功',
+    '添加失败',
+  )
 }
 
 async function deleteRobot(robotId) {
@@ -74,13 +90,11 @@ async function deleteRobot(robotId) {
     return
   }
 
-  try {
-    await postJson(`/api/robot/delete/${robotId}`, {})
-    pushFlash('机器人已删除', 'success')
-    await loadRobots()
-  } catch (error) {
-    pushFlash(error.message || '删除失败', 'error')
-  }
+  await runRobotAction(
+    () => postJson(`/api/robot/delete/${robotId}`, {}),
+    '机器人已删除',
+    '删除失败',
+  )
 }
 
 async function navigateRobot(event) {
@@ -143,7 +157,7 @@ onBeforeUnmount(() => {
             <div class="table-wrap max-h-520">
               <table class="data-table">
                 <thead>
-                  <tr><th>设备ID</th><th>名称</th><th>状态</th><th>电量</th><th>IP</th><th>操作</th></tr>
+                  <tr><th>名称</th><th>状态</th><th>操作</th></tr>
                 </thead>
                 <tbody id="robotTableBody">
                   <tr
@@ -152,11 +166,8 @@ onBeforeUnmount(() => {
                     :class="{ selected: String(robot.id) === selectedRobotId }"
                     @click="setSelectedRobot(robot.id)"
                   >
-                    <td>{{ robot.device_id }}</td>
                     <td>{{ robot.name }}</td>
                     <td class="col-status">{{ robot.status }}</td>
-                    <td class="col-battery">{{ robot.battery ?? '-' }}</td>
-                    <td class="col-ip">{{ robot.ip_address || '-' }}</td>
                     <td class="col-actions">
                       <RouterLink class="btn-operate" :to="`/robot/${robot.id}`">操作</RouterLink>
                       <button type="button" class="btn-delete" @click.stop="deleteRobot(robot.id)">删除</button>

@@ -1,6 +1,7 @@
 app:
   SECRET_KEY: "change-this-in-production"
   MAX_CONTENT_LENGTH: 10485760
+  TRAIN_MAX_CONTENT_LENGTH: 1073741824
 
 database:
   host: "127.0.0.1"

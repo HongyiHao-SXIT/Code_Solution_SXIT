@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getJson, postJson } from '../lib/api'
+import { getJson } from '../lib/api'
+import { confirmAndDeleteTask } from '../composables/useResultTaskActions'
 import { pushFlash } from '../stores/session'
 
 const route = useRoute()
@@ -16,6 +17,20 @@ const currentPage = computed(() => Number(route.query.page || 1))
 const isTaskView = computed(() => viewMode.value === 'tasks')
 const pageTitle = computed(() => (isTaskView.value ? '任务视图' : '检测项视图'))
 
+function buildListEndpoint(mode, page) {
+  return mode === 'tasks'
+    ? `/api/web/tasks?page=${page}`
+    : `/api/web/items?page=${page}`
+}
+
+function extractRows(payload, mode) {
+  return mode === 'tasks' ? (payload.tasks || []) : (payload.items || [])
+}
+
+function buildRouteTarget(mode, page) {
+  return { name: 'results', query: { mode, page } }
+}
+
 function formatConfidence(value) {
   if (value == null || value === '') {
     return '-'
@@ -26,11 +41,9 @@ function formatConfidence(value) {
 async function loadRows() {
   loading.value = true
   try {
-    const endpoint = isTaskView.value
-      ? `/api/web/tasks?page=${currentPage.value}`
-      : `/api/web/items?page=${currentPage.value}`
+    const endpoint = buildListEndpoint(viewMode.value, currentPage.value)
     const payload = await getJson(endpoint)
-    rows.value = isTaskView.value ? (payload.tasks || []) : (payload.items || [])
+    rows.value = extractRows(payload, viewMode.value)
     pagination.value = payload.pagination || null
     canDelete.value = Boolean(payload.can_delete)
   } catch (error) {
@@ -41,28 +54,20 @@ async function loadRows() {
 }
 
 async function deleteTask(taskId) {
-  if (!window.confirm('确认删除该检测结果吗？')) {
-    return
-  }
-
-  try {
-    const payload = await postJson(`/api/web/tasks/${taskId}/delete`, {})
-    pushFlash(payload.message || '删除成功', 'success')
-    await loadRows()
-  } catch (error) {
-    pushFlash(error.message || '删除失败', 'error')
-  }
+  await confirmAndDeleteTask(taskId, {
+    onSuccess: loadRows,
+  })
 }
 
 function goPage(page) {
-  router.push({ name: 'results', query: { mode: viewMode.value, page } })
+  router.push(buildRouteTarget(viewMode.value, page))
 }
 
 function switchMode(mode) {
   if (mode === viewMode.value) {
     return
   }
-  router.push({ name: 'results', query: { mode, page: 1 } })
+  router.push(buildRouteTarget(mode, 1))
 }
 
 watch(() => [route.query.page, route.query.mode], loadRows)
@@ -70,7 +75,7 @@ onMounted(loadRows)
 </script>
 
 <template>
-  <div class="panel page-panel">
+  <div class="panel page-panel result-list-page">
     <div class="panel-title">结果列表</div>
     <div class="panel-body">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
@@ -78,7 +83,7 @@ onMounted(loadRows)
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button
             type="button"
-            class="btn-detail"
+            class="btn-detail result-list-square-btn"
             :style="isTaskView ? '' : 'opacity:0.72;'"
             @click="switchMode('tasks')"
           >
@@ -86,7 +91,7 @@ onMounted(loadRows)
           </button>
           <button
             type="button"
-            class="btn-detail"
+            class="btn-detail result-list-square-btn"
             :style="!isTaskView ? '' : 'opacity:0.72;'"
             @click="switchMode('items')"
           >
@@ -130,7 +135,7 @@ onMounted(loadRows)
                 <td>{{ task.display_location || task.location || '-' }}</td>
                 <td>{{ task.created_at || '-' }}</td>
                 <td class="col-center col-nowrap">
-                  <RouterLink class="btn-detail" :to="`/result/${task.id}`">详情</RouterLink>
+                  <RouterLink class="btn-detail result-list-square-btn" :to="`/result/${task.id}`">详情</RouterLink>
                   <button v-if="canDelete" type="button" class="btn-delete" style="margin-left:6px;" @click="deleteTask(task.id)">删除任务</button>
                 </td>
               </tr>
@@ -145,7 +150,7 @@ onMounted(loadRows)
                 <td>{{ item.display_location }}</td>
                 <td>{{ item.captured_at || item.task_created_at || '-' }}</td>
                 <td class="col-center col-nowrap">
-                  <RouterLink class="btn-detail" :to="`/result/${item.task_id}`">任务详情</RouterLink>
+                  <RouterLink class="btn-detail result-list-square-btn" :to="`/result/${item.task_id}`">任务详情</RouterLink>
                   <button v-if="canDelete" type="button" class="btn-delete" style="margin-left:6px;" @click="deleteTask(item.task_id)">删除任务</button>
                 </td>
               </tr>
@@ -164,3 +169,15 @@ onMounted(loadRows)
     </div>
   </div>
 </template>
+
+<style scoped>
+.result-list-page .result-list-square-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 6px;
+  text-decoration: none;
+}
+</style>

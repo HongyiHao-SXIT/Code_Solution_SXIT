@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getJson, postJson } from '../lib/api'
+import { getJson } from '../lib/api'
+import { confirmAndDeleteTask } from '../composables/useResultTaskActions'
 import { pushFlash } from '../stores/session'
 
 const route = useRoute()
@@ -28,17 +29,11 @@ async function loadDetail() {
 }
 
 async function deleteTask() {
-  if (!window.confirm('确认删除该检测结果吗？')) {
-    return
-  }
-
-  try {
-    const payload = await postJson(`/api/web/tasks/${taskId.value}/delete`, {})
-    pushFlash(payload.message || '删除成功', 'success')
-    await router.replace('/result')
-  } catch (error) {
-    pushFlash(error.message || '删除失败', 'error')
-  }
+  await confirmAndDeleteTask(taskId.value, {
+    onSuccess: async () => {
+      await router.replace('/result')
+    },
+  })
 }
 
 watch(() => route.params.id, loadDetail)

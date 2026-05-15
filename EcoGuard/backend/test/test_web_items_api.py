@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Flask
 
 from database.db import db
-from database.models import DetectItem, DetectTask, User
+from database.models import DetectItem, DetectTask, OpsLog, User
 from web.pages import web_bp
 
 
@@ -80,6 +80,25 @@ class WebItemsApiTestCase(unittest.TestCase):
         self.assertIn('task_id', items[0])
         self.assertIn('label', items[0])
         self.assertIn('display_location', items[0])
+
+    def test_client_log_endpoint_persists_ops_log(self):
+        self._login()
+
+        response = self.client.post('/api/web/client-log', json={
+            'message': '机器人控制命令已下发',
+            'category': 'success',
+            'path': '/robot/1',
+            'source': 'flash',
+        })
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertTrue(payload.get('ok'))
+
+        with self.app.app_context():
+            log_row = db.session.get(OpsLog, payload.get('id'))
+            self.assertIsNotNone(log_row)
+            self.assertIn('机器人控制命令已下发', log_row.action)
 
 
 if __name__ == '__main__':

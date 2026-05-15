@@ -57,7 +57,8 @@ class Config:
     # MAX_CONTENT_LENGTH 设为视频上限，图片端点内部再二次校验 IMAGE_MAX_CONTENT_LENGTH
     IMAGE_MAX_CONTENT_LENGTH = 10 * 1024 * 1024
     VIDEO_MAX_CONTENT_LENGTH = 200 * 1024 * 1024
-    MAX_CONTENT_LENGTH = VIDEO_MAX_CONTENT_LENGTH
+    TRAIN_MAX_CONTENT_LENGTH = int(os.getenv("TRAIN_MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
+    MAX_CONTENT_LENGTH = max(VIDEO_MAX_CONTENT_LENGTH, TRAIN_MAX_CONTENT_LENGTH)
 
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
@@ -161,6 +162,11 @@ def load_yaml_runtime_overrides(base_dir):
         overrides["SECRET_KEY"] = app_section.get("SECRET_KEY")
     if "MAX_CONTENT_LENGTH" in app_section:
         overrides["MAX_CONTENT_LENGTH"] = _to_int(app_section.get("MAX_CONTENT_LENGTH"), Config.MAX_CONTENT_LENGTH)
+    if "TRAIN_MAX_CONTENT_LENGTH" in app_section:
+        overrides["TRAIN_MAX_CONTENT_LENGTH"] = _to_int(
+            app_section.get("TRAIN_MAX_CONTENT_LENGTH"),
+            Config.TRAIN_MAX_CONTENT_LENGTH,
+        )
     if "YOLO_CONF_THRESHOLD" in detect_section:
         overrides["YOLO_CONF_THRESHOLD"] = detect_section.get("YOLO_CONF_THRESHOLD")
     if "LEFT_HALF_ONLY" in detect_section:

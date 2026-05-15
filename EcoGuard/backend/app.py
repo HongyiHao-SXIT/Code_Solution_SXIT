@@ -60,6 +60,12 @@ def create_app():
     app.config.from_object(Config)
     app.config.update(load_yaml_runtime_overrides(app.config.get('BASE_DIR')))
 
+    train_max_content_length = app.config.get('TRAIN_MAX_CONTENT_LENGTH')
+    max_content_length = app.config.get('MAX_CONTENT_LENGTH')
+    if isinstance(train_max_content_length, int) and train_max_content_length > 0:
+        if not isinstance(max_content_length, int) or max_content_length < train_max_content_length:
+            app.config['MAX_CONTENT_LENGTH'] = train_max_content_length
+
     seed_everything(app.config.get('SEED', 42))
 
     configure_root_logging(app)

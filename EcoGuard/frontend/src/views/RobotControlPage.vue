@@ -12,7 +12,6 @@ const streamUrl = ref('')
 const customCmd = ref('')
 const navLat = ref('')
 const navLng = ref('')
-const logs = ref([])
 const cameraSrc = ref('')
 const robotId = computed(() => route.params.id)
 let map = null
@@ -20,16 +19,17 @@ let robotMarker = null
 let targetMarker = null
 let pollTimer = null
 
-function buildRobotPopup(currentRobot) {
-  return `<b>${escapeHtml(currentRobot?.name || '-')}</b><br>${escapeHtml(currentRobot?.device_id || '-')}`
+async function runRobotMutation(requestFactory, onSuccess, fallbackError) {
+  try {
+    const payload = await requestFactory()
+    await onSuccess(payload)
+  } catch (error) {
+    pushFlash(error.message || fallbackError, 'error')
+  }
 }
 
-function addLog(message) {
-  const now = new Date().toTimeString().slice(0, 8)
-  logs.value.push({ time: now, text: message })
-  if (logs.value.length > 50) {
-    logs.value.shift()
-  }
+function buildRobotPopup(currentRobot) {
+  return `<b>${escapeHtml(currentRobot?.name || '-')}</b><br>${escapeHtml(currentRobot?.device_id || '-')}`
 }
 
 function applyRobot(currentRobot) {
@@ -42,7 +42,7 @@ function applyRobot(currentRobot) {
       robotMarker.setPopupContent(buildRobotPopup(currentRobot))
     } else {
       robotMarker = L.marker([currentRobot.lat, currentRobot.lng], {
-        icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot"></span>', iconSize: [14, 14], iconAnchor: [7, 7] }),
+        icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot map-dot-robot"></span>', iconSize: [14, 14], iconAnchor: [7, 7] }),
       }).addTo(map).bindPopup(buildRobotPopup(currentRobot))
       map.setView([currentRobot.lat, currentRobot.lng], 16)
     }
@@ -52,7 +52,7 @@ function applyRobot(currentRobot) {
       targetMarker.setLatLng([currentRobot.target.lat, currentRobot.target.lng])
     } else {
       targetMarker = L.marker([currentRobot.target.lat, currentRobot.target.lng], {
-        icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot"></span>', iconSize: [14, 14], iconAnchor: [7, 7] }),
+        icon: L.divIcon({ className: 'map-dot-icon', html: '<span class="map-dot map-dot-robot-target"></span>', iconSize: [14, 14], iconAnchor: [7, 7] }),
       }).addTo(map).bindPopup('目标位置')
     }
   }
@@ -73,13 +73,13 @@ async function loadRobot() {
 }
 
 async function sendCommand(command, sourceText = '发送控制命令') {
-  try {
-    const payload = await postJson('/api/robot/control', { id: Number(robotId.value), command })
-    addLog(`${sourceText}: ${payload.command || command}`)
-  } catch (error) {
-    addLog(error.message || '请求失败')
-    pushFlash(error.message || '命令发送失败', 'error')
-  }
+  await runRobotMutation(
+    () => postJson('/api/robot/control', { id: Number(robotId.value), command }),
+    async (payload) => {
+      pushFlash(`${sourceText}: ${payload.command || command}`, 'success')
+    },
+    '命令发送失败',
+  )
 }
 
 async function sendNavigation() {
@@ -87,17 +87,18 @@ async function sendNavigation() {
     pushFlash('请填写目标经纬度', 'warning')
     return
   }
-  try {
-    const payload = await postJson('/api/robot/navigate', {
+  await runRobotMutation(
+    () => postJson('/api/robot/navigate', {
       id: Number(robotId.value),
       lat: Number(navLat.value),
       lng: Number(navLng.value),
-    })
-    addLog(payload.msg || '导航目标已设置')
-    await loadRobot()
-  } catch (error) {
-    pushFlash(error.message || '导航设置失败', 'error')
-  }
+    }),
+    async (payload) => {
+      pushFlash(payload.msg || '导航目标已设置', 'success')
+      await loadRobot()
+    },
+    '导航设置失败',
+  )
 }
 
 function setStream() {
@@ -106,6 +107,7 @@ function setStream() {
     return
   }
   cameraSrc.value = streamUrl.value.trim()
+  pushFlash('摄像头流已设置', 'success')
 }
 
 function onResize() {
@@ -167,12 +169,6 @@ onBeforeUnmount(() => {
                   <input v-model.trim="navLng" class="input-control input-sm" placeholder="目标经度">
                   <button id="btnSetNav" type="button" class="btn-sm" @click="sendNavigation">设置</button>
                 </div>
-              </div>
-            </div>
-            <div class="robot-log-panel">
-              <div class="robot-log-title">控制日志</div>
-              <div id="robotLogList" class="robot-log-list">
-                <div v-for="(item, index) in logs" :key="`${item.time}-${index}`" class="robot-log-item"><span class="time">{{ item.time }}</span><span class="text">{{ item.text }}</span></div>
               </div>
             </div>
           </div>

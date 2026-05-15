@@ -2,6 +2,11 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 import math
 
+try:
+    from services.search_engine import HybridSearchEngine
+except Exception:
+    HybridSearchEngine = None
+
 
 DEFAULT_FORECAST_DAYS = 1
 DEFAULT_GRID_SIZE = 0.01
@@ -9,25 +14,72 @@ DEFAULT_LOOKBACK_DAYS = 30
 DEFAULT_TOP_K = 6
 
 
-def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_size=DEFAULT_GRID_SIZE,
-                           top_k=DEFAULT_TOP_K, forecast_days=DEFAULT_FORECAST_DAYS):
-    normalized_lookback = max(7, int(lookback_days or DEFAULT_LOOKBACK_DAYS))
-    normalized_top_k = max(1, int(top_k or DEFAULT_TOP_K))
-    normalized_horizon = max(1, int(forecast_days or DEFAULT_FORECAST_DAYS))
-    normalized_grid_size = max(0.001, float(grid_size or DEFAULT_GRID_SIZE))
+def _created_at_to_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    return None
+
+
+def _build_service_events(records, lookback_days, as_of_day):
+    cutoff_day = as_of_day - timedelta(days=lookback_days - 1)
+    events = []
+    tasks_used = 0
+    detections_used = 0
+
+    for index, record in enumerate(records):
+        latitude = _record_value(record, 'latitude')
+        longitude = _record_value(record, 'longitude')
+        created_at_raw = _record_value(record, 'created_at')
+        created_at = _created_at_to_datetime(created_at_raw)
+        if created_at is None:
+            continue
+
+        event_day = created_at.date()
+        if event_day < cutoff_day:
+            continue
+        if not _is_valid_coordinate(latitude, longitude):
+            continue
+
+        detection_count = max(_safe_int(_record_value(record, 'detection_count'), 0), 0)
+        task_count = max(_safe_int(_record_value(record, 'task_count'), 1), 0)
+        if detection_count <= 0:
+            continue
+
+        label = str(_record_value(record, 'label') or 'unknown').strip() or 'unknown'
+        volume = float(detection_count) + float(task_count) * 0.5
+        events.append({
+            'id': index + 1,
+            'longitude': float(longitude),
+            'latitude': float(latitude),
+            'timestamp': created_at.isoformat(),
+            'waste_type': label,
+            'volume': max(0.1, volume),
+        })
+        tasks_used += task_count
+        detections_used += detection_count
+
+    return events, tasks_used, detections_used
+
+
+def _build_hotspot_forecast_via_service(records, lookback_days, top_k, grid_size, forecast_days):
+    if HybridSearchEngine is None:
+        return None
+
     as_of_day = datetime.now().date()
-    cells = _aggregate_grid_cells(
+    events, tasks_used, detections_used = _build_service_events(
         records=records,
-        lookback_days=normalized_lookback,
-        grid_size=normalized_grid_size,
-        as_of_day=as_of_day
+        lookback_days=lookback_days,
+        as_of_day=as_of_day,
     )
-    if not cells:
+
+    if not events:
         return {
             'generated_at': datetime.now().isoformat(),
-            'grid_size': normalized_grid_size,
-            'lookback_days': normalized_lookback,
-            'forecast_days': normalized_horizon,
+            'grid_size': grid_size,
+            'lookback_days': lookback_days,
+            'forecast_days': forecast_days,
             'summary': {
                 'cells_analyzed': 0,
                 'tasks_used': 0,
@@ -41,13 +93,54 @@ def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_si
             'recommendations': ['历史垃圾点位不足，暂时无法生成热点预测。'],
         }
 
+    try:
+        engine = HybridSearchEngine()
+        engine.fit(events)
+        hotspots = engine.build_hotspots(top_k=top_k)
+    except Exception:
+        return None
+
+    return {
+        'generated_at': datetime.now().isoformat(),
+        'grid_size': grid_size,
+        'lookback_days': lookback_days,
+        'forecast_days': forecast_days,
+        'summary': {
+            'cells_analyzed': len(hotspots),
+            'tasks_used': tasks_used,
+            'detections_used': detections_used,
+        },
+        'chart_data': {
+            'labels': [f"热点 {item.get('rank', index + 1)}" for index, item in enumerate(hotspots)],
+            'values': [item.get('predicted_count', 0) for item in hotspots],
+        },
+        'hotspots': hotspots,
+        'recommendations': _build_recommendations(hotspots),
+    }
+
+
+def _build_hotspot_forecast_legacy(records, lookback_days, grid_size, top_k, forecast_days):
+    as_of_day = datetime.now().date()
+    cells = _aggregate_grid_cells(
+        records=records,
+        lookback_days=lookback_days,
+        grid_size=grid_size,
+        as_of_day=as_of_day
+    )
+    if not cells:
+        return _build_empty_forecast_payload(
+            grid_size=grid_size,
+            lookback_days=lookback_days,
+            forecast_days=forecast_days,
+        )
+
     scored_cells = [
-        _score_grid_cell(cell=cell, as_of_day=as_of_day, lookback_days=normalized_lookback, forecast_days=normalized_horizon)
+        _score_grid_cell(cell=cell, as_of_day=as_of_day, lookback_days=lookback_days, forecast_days=forecast_days)
         for cell in cells.values()
     ]
     scored_cells.sort(key=lambda item: (item['predicted_count'], item['recent_7_avg'], item['total_detections']), reverse=True)
 
-    top_cells = scored_cells[:normalized_top_k]
+    top_cells = scored_cells[:top_k]
     max_raw_score = max((item['raw_score'] for item in top_cells), default=0.0)
     hotspots = []
     for index, item in enumerate(top_cells, start=1):
@@ -65,14 +158,14 @@ def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_si
             'dominant_labels': item['dominant_labels'],
             'last_seen_at': item['last_seen_at'].isoformat() if item['last_seen_at'] else None,
             'history': item['history'],
-            'reason': _build_hotspot_reason(item, risk_score),
+            'reason': _build_hotspot_reason(item),
         })
 
     return {
         'generated_at': datetime.now().isoformat(),
-        'grid_size': normalized_grid_size,
-        'lookback_days': normalized_lookback,
-        'forecast_days': normalized_horizon,
+        'grid_size': grid_size,
+        'lookback_days': lookback_days,
+        'forecast_days': forecast_days,
         'summary': {
             'cells_analyzed': len(cells),
             'tasks_used': sum(cell['task_count'] for cell in cells.values()),
@@ -85,6 +178,31 @@ def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_si
         'hotspots': hotspots,
         'recommendations': _build_recommendations(hotspots),
     }
+
+
+def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_size=DEFAULT_GRID_SIZE,
+                           top_k=DEFAULT_TOP_K, forecast_days=DEFAULT_FORECAST_DAYS):
+    normalized_lookback = max(7, int(lookback_days or DEFAULT_LOOKBACK_DAYS))
+    normalized_top_k = max(1, int(top_k or DEFAULT_TOP_K))
+    normalized_horizon = max(1, int(forecast_days or DEFAULT_FORECAST_DAYS))
+    normalized_grid_size = max(0.001, float(grid_size or DEFAULT_GRID_SIZE))
+    payload = _build_hotspot_forecast_via_service(
+        records=records,
+        lookback_days=normalized_lookback,
+        top_k=normalized_top_k,
+        grid_size=normalized_grid_size,
+        forecast_days=normalized_horizon,
+    )
+    if payload is not None:
+        return payload
+
+    return _build_hotspot_forecast_legacy(
+        records=records,
+        lookback_days=normalized_lookback,
+        grid_size=normalized_grid_size,
+        top_k=normalized_top_k,
+        forecast_days=normalized_horizon,
+    )
 
 
 def _aggregate_grid_cells(records, lookback_days, grid_size, as_of_day):
@@ -107,12 +225,12 @@ def _aggregate_grid_cells(records, lookback_days, grid_size, as_of_day):
         label = _record_value(record, 'label')
         detection_count = _safe_int(_record_value(record, 'detection_count'), 0)
         task_count = _safe_int(_record_value(record, 'task_count'), 1)
+        if detection_count <= 0:
+            continue
         if label:
             labels = [label] * detection_count
         else:
             labels = []
-        if detection_count <= 0:
-            continue
 
         grid_lat = _grid_floor(latitude, grid_size)
         grid_lng = _grid_floor(longitude, grid_size)
@@ -197,7 +315,27 @@ def _build_history(daily_counts, as_of_day, days=7):
     }
 
 
-def _build_hotspot_reason(item, risk_score):
+def _build_empty_forecast_payload(grid_size, lookback_days, forecast_days):
+    return {
+        'generated_at': datetime.now().isoformat(),
+        'grid_size': grid_size,
+        'lookback_days': lookback_days,
+        'forecast_days': forecast_days,
+        'summary': {
+            'cells_analyzed': 0,
+            'tasks_used': 0,
+            'detections_used': 0,
+        },
+        'chart_data': {
+            'labels': [],
+            'values': [],
+        },
+        'hotspots': [],
+        'recommendations': ['历史垃圾点位不足，暂时无法生成热点预测。'],
+    }
+
+
+def _build_hotspot_reason(item):
     labels = '、'.join(item['dominant_labels']) if item['dominant_labels'] else '混合垃圾'
     if item['today_count'] > 0:
         return f"近 24 小时仍有 {item['today_count']} 个垃圾目标，{labels}出现更集中。"

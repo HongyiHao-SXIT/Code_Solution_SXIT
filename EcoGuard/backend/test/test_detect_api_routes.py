@@ -20,6 +20,11 @@ class _FakeDetector:
         ]
 
 
+class _FakeEmptyDetector:
+    def analyze_uploaded_waste_image(self, source_path, save_result=False, result_path=None, conf_thres=0.25):
+        return []
+
+
 class DetectApiRoutesTestCase(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
@@ -70,6 +75,30 @@ class DetectApiRoutesTestCase(unittest.TestCase):
         with self.app.app_context():
             self.assertEqual(DetectTask.query.count(), 1)
 
+    @patch('api.detect_api.ensure_storage_dirs')
+    @patch('api.detect_api.resolve_location', return_value='测试地点')
+    @patch('api.detect_api.save_uploaded_file', return_value=('x.jpg', '/tmp/x.jpg', 'static/uploads/x.jpg'))
+    @patch('api.detect_api.load_detector', return_value=_FakeEmptyDetector())
+    @patch('api.detect_api.cv2.imwrite', return_value=True)
+    def test_detect_image_empty_result_not_recorded(self, *_mocks):
+        data = {
+            'image': (io.BytesIO(b'fake-image-data'), 'sample.jpg'),
+            'latitude': '30.11',
+            'longitude': '110.22',
+        }
+        resp = self.client.post('/api/detect', data=data, content_type='multipart/form-data')
+        self.assertEqual(resp.status_code, 200)
+
+        payload = resp.get_json()
+        self.assertTrue(payload.get('ok'))
+        self.assertEqual(payload.get('result'), [])
+        self.assertEqual(payload.get('recorded'), False)
+        self.assertIsNone(payload.get('task'))
+
+        with self.app.app_context():
+            self.assertEqual(DetectTask.query.count(), 0)
+            self.assertEqual(DetectItem.query.count(), 0)
+
     def test_detect_image_missing_file(self):
         resp = self.client.post('/api/detect', data={}, content_type='multipart/form-data')
         self.assertEqual(resp.status_code, 400)
@@ -98,6 +127,30 @@ class DetectApiRoutesTestCase(unittest.TestCase):
         with self.app.app_context():
             self.assertEqual(DetectTask.query.count(), 1)
             self.assertEqual(DetectItem.query.count(), 2)
+
+    def test_detect_ingest_empty_result_not_recorded(self):
+        payload = {
+            'source_type': 'parser',
+            'device_id': 'cam-01',
+            'latitude': 30.123,
+            'longitude': 110.456,
+            'location': '测试街道',
+            'source_path': 'ingest://sample-002',
+            'detections': [],
+        }
+        resp = self.client.post('/api/detect/ingest', json=payload)
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.get_json()
+        self.assertTrue(body.get('ok'))
+        self.assertEqual(body.get('inserted_items'), 0)
+        self.assertEqual(body.get('recorded'), False)
+        self.assertIsNone(body.get('task_id'))
+        self.assertIsNone(body.get('task'))
+
+        with self.app.app_context():
+            self.assertEqual(DetectTask.query.count(), 0)
+            self.assertEqual(DetectItem.query.count(), 0)
 
 
 if __name__ == '__main__':

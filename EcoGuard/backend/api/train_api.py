@@ -33,8 +33,33 @@ from api.train_route_services import (
 train_bp = Blueprint('train_bp', __name__)
 
 
+@train_bp.route('/config', methods=['GET'])
+def get_training_config():
+    train_max_content_length = current_app.config.get('TRAIN_MAX_CONTENT_LENGTH')
+    return jsonify({
+        'ok': True,
+        'limits': {
+            'train_max_content_length': int(train_max_content_length) if isinstance(train_max_content_length, int) else None,
+        },
+        'accept': {
+            'dataset_extensions': sorted(_ALLOWED_ZIP_EXTENSIONS),
+            'weight_extensions': sorted(_ALLOWED_WEIGHT_EXTENSIONS),
+        },
+    })
+
+
 @train_bp.route('/start', methods=['POST'])
 def start_training():
+    train_max_content_length = current_app.config.get('TRAIN_MAX_CONTENT_LENGTH')
+    request_content_length = request.content_length or 0
+    if isinstance(train_max_content_length, int) and train_max_content_length > 0:
+        if request_content_length > train_max_content_length:
+            limit_mb = round(train_max_content_length / (1024 * 1024), 2)
+            return jsonify({
+                'ok': False,
+                'message': f'训练数据包过大，当前上限为 {limit_mb} MB。',
+            }), 413
+
     dataset_zip = request.files.get('dataset_zip')
     if dataset_zip is None or not dataset_zip.filename:
         return jsonify({'ok': False, 'message': '请上传标注数据集 ZIP 文件（dataset_zip）。'}), 400
@@ -73,6 +98,8 @@ def start_training():
 
     default_weight_path = current_app.config.get('YOLO_MODEL_PATH', os.path.join(base_dir, 'best.pt'))
     weight_path = resolve_weight_path(custom_weight, weights_root, job_id, base_dir, default_weight_path)
+    if not os.path.exists(weight_path):
+        return jsonify({'ok': False, 'message': f'未找到可用权重文件: {weight_path}'}), 400
 
     epochs, batch, imgsz, device, resume, run_name = parse_training_options(
         request.form,
@@ -160,6 +187,15 @@ def get_training_status(job_id):
 def get_active_training_status():
     with _job_lock:
         job_id = _job_state.get('active_job_id')
+        if not job_id:
+            jobs = _job_state.get('jobs') or {}
+            if jobs:
+                latest_job = max(
+                    jobs.values(),
+                    key=lambda item: str(item.get('created_at') or ''),
+                )
+                job_id = latest_job.get('job_id')
+
     if not job_id:
         return jsonify({'ok': True, 'job': None})
     return get_training_status(job_id)

@@ -1,26 +1,24 @@
 import { reactive } from 'vue'
-import { getJson } from '../lib/api'
+import { getJson, postJson } from '../lib/api'
+
+const DEFAULT_INITIAL_STATE = {
+  authUser: null,
+  nextPath: null,
+}
 
 function readInitialState() {
   const el = document.getElementById('app-initial-state')
   if (!el) {
-    return {
-      authUser: null,
-      flashMessages: [],
-      nextPath: null,
-      requestPath: window.location.pathname,
-    }
+    return DEFAULT_INITIAL_STATE
   }
 
   try {
-    return JSON.parse(el.textContent || '{}')
-  } catch {
     return {
-      authUser: null,
-      flashMessages: [],
-      nextPath: null,
-      requestPath: window.location.pathname,
+      ...DEFAULT_INITIAL_STATE,
+      ...(JSON.parse(el.textContent || '{}') || {}),
     }
+  } catch {
+    return DEFAULT_INITIAL_STATE
   }
 }
 
@@ -28,10 +26,15 @@ const initialState = readInitialState()
 
 export const sessionState = reactive({
   user: initialState.authUser || null,
-  flashes: Array.isArray(initialState.flashMessages) ? [...initialState.flashMessages] : [],
   nextPath: initialState.nextPath || null,
   hydrated: Boolean(initialState.authUser),
 })
+
+function applySessionUser(user) {
+  sessionState.user = user || null
+  sessionState.hydrated = true
+  return sessionState.user
+}
 
 export async function ensureSession() {
   if (sessionState.hydrated) {
@@ -40,36 +43,31 @@ export async function ensureSession() {
 
   try {
     const payload = await getJson('/api/web/session')
-    sessionState.user = payload.user || null
+    return applySessionUser(payload.user)
   } catch {
-    sessionState.user = null
+    return applySessionUser(null)
   }
-
-  sessionState.hydrated = true
-  return sessionState.user
 }
 
 export function setSessionUser(user) {
-  sessionState.user = user || null
-  sessionState.hydrated = true
+  return applySessionUser(user)
 }
 
 export function clearSessionUser() {
-  sessionState.user = null
-  sessionState.hydrated = true
+  return applySessionUser(null)
 }
 
 export function pushFlash(message, category = 'success') {
-  sessionState.flashes.unshift({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    message,
-    category,
-  })
-}
-
-export function removeFlash(id) {
-  const index = sessionState.flashes.findIndex((item) => item.id === id)
-  if (index >= 0) {
-    sessionState.flashes.splice(index, 1)
+  const text = String(message || '').trim()
+  if (!text) {
+    return
   }
+
+  // Keep logging in backend only; no front-end popup queue.
+  postJson('/api/web/client-log', {
+    message: text,
+    category,
+    path: window.location.pathname,
+    source: 'flash',
+  }).catch(() => {})
 }

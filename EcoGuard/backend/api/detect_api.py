@@ -66,6 +66,15 @@ def ingest_detection_result():
     except ValueError as error:
         return jsonify({'ok': False, 'message': str(error)}), 400
 
+    if not ingest_context['normalized_detections']:
+        return json_success({
+            'task_id': None,
+            'inserted_items': 0,
+            'skipped_items': ingest_context['skipped_count'],
+            'recorded': False,
+            'task': None,
+        })
+
     task = create_detect_task(
         source_rel_path=ingest_context['source_rel_path'],
         result_rel_path=ingest_context['result_rel_path'],
@@ -93,6 +102,7 @@ def ingest_detection_result():
         'task_id': task.id,
         'inserted_items': len(ingest_context['normalized_detections']),
         'skipped_items': ingest_context['skipped_count'],
+        'recorded': True,
         'task': task.to_dict() if hasattr(task, 'to_dict') else {'id': task.id},
     })
 
@@ -126,15 +136,7 @@ def detect_image():
 
     result_abs_path, result_rel_path = build_image_result_paths(current_app.config['RESULT_DIR'], file_name)
 
-    task = create_detect_task(
-        source_rel_path=source_rel_path,
-        result_rel_path=result_rel_path,
-        source_type=image_context['source_type'],
-        lat=image_context['latitude'],
-        lng=image_context['longitude'],
-        location=resolved_location,
-        device_id=image_context['device_id']
-    )
+    task = None
 
     try:
         detector = load_detector()
@@ -149,6 +151,24 @@ def detect_image():
             conf_thres=conf_thres
         )
 
+        if not detections:
+            return json_success({
+                'result': [],
+                'annotated_image_path': result_rel_path,
+                'recorded': False,
+                'task': None,
+            })
+
+        task = create_detect_task(
+            source_rel_path=source_rel_path,
+            result_rel_path=result_rel_path,
+            source_type=image_context['source_type'],
+            lat=image_context['latitude'],
+            lng=image_context['longitude'],
+            location=resolved_location,
+            device_id=image_context['device_id']
+        )
+
         detection_results = save_detect_items(task, detections, snapshot_rel_path=result_rel_path, frame_index=0)
 
         complete_task(task)
@@ -156,12 +176,16 @@ def detect_image():
         return json_success({
             "result": detection_results,
             "annotated_image_path": result_rel_path,
+            "recorded": True,
             "task": task.to_dict() if hasattr(task, 'to_dict') else {"id": task.id}
         })
 
     except (FileNotFoundError, PermissionError, IOError, RuntimeError, TimeoutError, ValueError) as error:
-        fail_task(task, error)
-        logger.exception("图片检测流程失败，task_id=%s", task.id)
+        if task is not None:
+            fail_task(task, error)
+            logger.exception("图片检测流程失败，task_id=%s", task.id)
+        else:
+            logger.exception("图片检测流程失败（未创建任务）")
         return json_error(error, 500)
 
 

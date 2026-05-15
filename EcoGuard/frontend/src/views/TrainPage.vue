@@ -10,6 +10,7 @@ const polling = ref(false)
 const datasetInput = ref(null)
 const weightInput = ref(null)
 const currentJob = ref(null)
+const trainMaxBytes = ref(null)
 let pollingTimer = null
 
 const form = reactive({
@@ -22,13 +23,46 @@ const form = reactive({
   resume: false,
 })
 
+function hasAllowedExtension(file, expectedExt) {
+  const ext = file?.name?.split('.').pop()?.toLowerCase()
+  return ext === expectedExt
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0)
+  if (!Number.isFinite(value) || value <= 0) {
+    return ''
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let index = 0
+  let size = value
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
+  }
+  return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+async function loadTrainConfig() {
+  try {
+    const payload = await getJson('/api/train/config')
+    const sizeLimit = payload?.limits?.train_max_content_length
+    trainMaxBytes.value = Number.isFinite(Number(sizeLimit)) ? Number(sizeLimit) : null
+  } catch {
+    trainMaxBytes.value = null
+  }
+}
+
 function chooseDataset(file) {
   if (!file) {
     return
   }
-  const ext = file.name.split('.').pop()?.toLowerCase()
-  if (ext !== 'zip') {
+  if (!hasAllowedExtension(file, 'zip')) {
     pushFlash('数据集只支持 ZIP 文件', 'error')
+    return
+  }
+  if (trainMaxBytes.value && file.size > trainMaxBytes.value) {
+    pushFlash(`数据集大小超过上限（${formatBytes(trainMaxBytes.value)}）`, 'error')
     return
   }
   datasetZip.value = file
@@ -40,8 +74,7 @@ function chooseWeight(file) {
     return
   }
 
-  const ext = file.name.split('.').pop()?.toLowerCase()
-  if (ext !== 'pt') {
+  if (!hasAllowedExtension(file, 'pt')) {
     pushFlash('权重文件只支持 .pt', 'error')
     return
   }
@@ -161,6 +194,7 @@ onBeforeUnmount(() => {
 })
 
 refreshActiveJobStatus()
+loadTrainConfig()
 </script>
 
 <template>
@@ -171,6 +205,7 @@ refreshActiveJobStatus()
         <div class="upload-col upload-control-col">
           <div class="upload-card">
             <div class="section-title section-title-sm">1. 上传标注数据集</div>
+            <p v-if="trainMaxBytes" class="text-muted" style="margin:0 0 8px;">当前上传上限：{{ formatBytes(trainMaxBytes) }}</p>
             <div class="upload-drop-area" @click="datasetInput?.click()">
               {{ datasetZip ? `已选择: ${datasetZip.name}` : '点击选择 ZIP 数据集（含 images/labels 与 data.yaml）' }}
             </div>

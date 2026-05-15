@@ -4,7 +4,6 @@ import { ensureSession } from './stores/session'
 const HomePage = () => import('./views/HomePage.vue')
 const LoginPage = () => import('./views/LoginPage.vue')
 const RegisterPage = () => import('./views/RegisterPage.vue')
-const UploadPage = () => import('./views/UploadPage.vue')
 const StatsPage = () => import('./views/StatsPage.vue')
 const ResultListPage = () => import('./views/ResultListPage.vue')
 const ResultDetailPage = () => import('./views/ResultDetailPage.vue')
@@ -16,7 +15,6 @@ const routes = [
   { path: '/', name: 'home', component: HomePage, meta: { requiresAuth: true, title: '首页' } },
   { path: '/login', name: 'login', component: LoginPage, meta: { guestOnly: true, title: '用户登录' } },
   { path: '/register', name: 'register', component: RegisterPage, meta: { guestOnly: true, title: '用户注册' } },
-  { path: '/upload', name: 'upload', component: UploadPage, meta: { requiresAuth: true, title: '手动上传检测' } },
   { path: '/stats', name: 'stats', component: StatsPage, meta: { requiresAuth: true, title: '数据分析' } },
   { path: '/result', name: 'results', component: ResultListPage, meta: { requiresAuth: true, title: '任务管理' } },
   { path: '/result/:id', name: 'result-detail', component: ResultDetailPage, meta: { requiresAuth: true, title: '任务详情' } },

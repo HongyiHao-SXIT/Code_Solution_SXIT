@@ -1,27 +1,7 @@
-"""
-EcoGuard SimRobot Qt 操作台
-
-功能:
-1) 选择本地文件夹作为模拟数据来源
-2) 预览图片/文本数据文件
-3) 调用后端 /api/detect 触发模型识别
-4) 在表格中手动润色识别结果（标签、置信度、bbox）
-5) 调用后端 /api/detect/ingest 上传人工修订后的结果
-6) 支持批量识别与批量识别后自动上传
-
-运行示例:
-    python Sim_robot_qt.py
-    python Sim_robot_qt.py --server http://127.0.0.1:5000 --device-id SIM_QT_001
-
-依赖:
-    pip install PySide6 requests
-    # 或 pip install PyQt6 requests
-"""
-
 from __future__ import annotations
 
 import argparse
-import os
+import math
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -30,11 +10,12 @@ import requests
 
 
 try:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QTimer
     from PySide6.QtGui import QPixmap
     from PySide6.QtWidgets import (
         QApplication,
         QFileDialog,
+        QDoubleSpinBox,
         QGridLayout,
         QGroupBox,
         QHBoxLayout,
@@ -46,7 +27,6 @@ try:
         QMainWindow,
         QMessageBox,
         QPushButton,
-        QDoubleSpinBox,
         QSplitter,
         QStatusBar,
         QTableWidget,
@@ -58,11 +38,12 @@ try:
     QT_BINDING = "PySide6"
 except ImportError:
     try:
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import Qt, QTimer
         from PyQt6.QtGui import QPixmap
         from PyQt6.QtWidgets import (
             QApplication,
             QFileDialog,
+            QDoubleSpinBox,
             QGridLayout,
             QGroupBox,
             QHBoxLayout,
@@ -74,7 +55,6 @@ except ImportError:
             QMainWindow,
             QMessageBox,
             QPushButton,
-            QDoubleSpinBox,
             QSplitter,
             QStatusBar,
             QTableWidget,
@@ -95,6 +75,33 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
 TEXT_EXTENSIONS = {".txt", ".json", ".csv", ".yaml", ".yml", ".log"}
 TABLE_COLUMNS = ["标签", "置信度(0-1)", "x1", "y1", "x2", "y2"]
 
+CONTROL_COMMANDS = {
+    "FORWARD", "BACK", "LEFT", "RIGHT", "STOP",
+    "PICK_TRASH", "RESET", "PAUSE", "RESUME",
+    "SLOW_FORWARD", "FAST_FORWARD", "SPIN_LEFT", "SPIN_RIGHT",
+    "HOLD_POSITION", "CANCEL_NAVIGATION", "RETURN_HOME", "DOCK",
+}
+
+CMD_ALIASES = {
+    "f": "FORWARD",
+    "forward": "FORWARD",
+    "b": "BACK",
+    "back": "BACK",
+    "backward": "BACK",
+    "biede": "BACK",
+    "bide": "BACK",
+    "l": "LEFT",
+    "left": "LEFT",
+    "r": "RIGHT",
+    "right": "RIGHT",
+    "s": "STOP",
+    "stop": "STOP",
+    "pause": "PAUSE",
+    "resume": "RESUME",
+    "sf": "SLOW_FORWARD",
+    "ff": "FAST_FORWARD",
+}
+
 QT_HORIZONTAL = getattr(Qt, "Horizontal", Qt.Orientation.Horizontal)
 QT_ALIGN_CENTER = getattr(Qt, "AlignCenter", Qt.AlignmentFlag.AlignCenter)
 QT_USER_ROLE = getattr(Qt, "UserRole", Qt.ItemDataRole.UserRole)
@@ -106,19 +113,45 @@ QT_SMOOTH_TRANSFORM = getattr(
 )
 QHEADER_STRETCH = getattr(QHeaderView, "Stretch", QHeaderView.ResizeMode.Stretch)
 
+MOVE_STEP_DEG = 0.00001
+FAST_MULTIPLIER = 3.0
+SLOW_MULTIPLIER = 0.4
+NAV_STEP_RATIO = 0.08
+NAV_ARRIVE_THRESHOLD = 0.00003
+BATTERY_DRAIN_PER_BEAT = 0.03
+
 
 class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
     def __init__(self, server: str, device_id: str):
         super().__init__()
-        self.setWindowTitle(f"EcoGuard SimRobot Qt 操作台 ({QT_BINDING})")
-        self.resize(1560, 940)
+        self.setWindowTitle(f"EcoGuard SimRobot Qt 智能控制台 ({QT_BINDING})")
+        self.resize(1320, 820)
 
         self.current_folder: Optional[Path] = None
         self.current_file: Optional[Path] = None
         self.last_source_path: Optional[str] = None
         self.last_result_path: Optional[str] = None
 
+        self.upload_cursor = 0
+
+        self.robot_db_id: Optional[int] = None
+        self.robot_battery = 92.0
+        self.robot_heading = 0.0
+        self.robot_paused = False
+        self.robot_moving: Optional[str] = None
+        self.robot_nav_target: Optional[tuple[float, float]] = None
+        self.last_server_command = "IDLE"
+
+        self.upload_timer = QTimer(self)
+        self.upload_timer.timeout.connect(self._upload_next_image_once)
+
+        self.robot_timer = QTimer(self)
+        self.robot_timer.timeout.connect(self._robot_tick)
+
         self._build_ui(server=server, device_id=device_id)
+        self._apply_styles()
+        self._update_robot_dashboard()
+        self.robot_sync_btn.click()
 
     # ----------------------------- UI -----------------------------
 
@@ -129,8 +162,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         root_layout.setContentsMargins(10, 10, 10, 10)
         root_layout.setSpacing(10)
 
-        # 顶部配置栏
-        config_box = QGroupBox("平台连接与上传参数")
+        config_box = QGroupBox("连接参数 / 位置信息")
         cfg_grid = QGridLayout(config_box)
 
         self.server_edit = QLineEdit(server)
@@ -167,11 +199,102 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         root_layout.addWidget(config_box)
 
-        # 主区域
+        control_box = QGroupBox("上传节奏 / 机器人控制")
+        ctl_grid = QGridLayout(control_box)
+
+        self.upload_interval_spin = QDoubleSpinBox()
+        self.upload_interval_spin.setDecimals(1)
+        self.upload_interval_spin.setRange(0.5, 60.0)
+        self.upload_interval_spin.setValue(2.0)
+        self.upload_interval_spin.valueChanged.connect(self._on_upload_interval_changed)
+
+        self.upload_next_btn = QPushButton("上传下一张")
+        self.upload_next_btn.clicked.connect(self.upload_next_single)
+
+        self.interval_upload_btn = QPushButton("开启间隔上传")
+        self.interval_upload_btn.setCheckable(True)
+        self.interval_upload_btn.clicked.connect(self.toggle_interval_upload)
+
+        self.heartbeat_interval_spin = QDoubleSpinBox()
+        self.heartbeat_interval_spin.setDecimals(1)
+        self.heartbeat_interval_spin.setRange(0.5, 30.0)
+        self.heartbeat_interval_spin.setValue(1.5)
+        self.heartbeat_interval_spin.valueChanged.connect(self._on_heartbeat_interval_changed)
+
+        self.robot_sync_btn = QPushButton("开启机器人同步")
+        self.robot_sync_btn.setCheckable(True)
+        self.robot_sync_btn.clicked.connect(self.toggle_robot_sync)
+
+        self.robot_pos_label = QLabel("位置: (30.500000, 114.300000)")
+        self.robot_heading_label = QLabel("朝向: 0.0°")
+        self.robot_mode_label = QLabel("动作: 静止")
+        self.robot_battery_label = QLabel("电量: 92.0%")
+        self.robot_server_cmd_label = QLabel("服务器指令: IDLE")
+
+        self.move_speed_spin = QDoubleSpinBox()
+        self.move_speed_spin.setDecimals(2)
+        self.move_speed_spin.setRange(0.20, 8.00)
+        self.move_speed_spin.setSingleStep(0.10)
+        self.move_speed_spin.setValue(1.00)
+
+        self.turn_speed_spin = QDoubleSpinBox()
+        self.turn_speed_spin.setDecimals(1)
+        self.turn_speed_spin.setRange(1.0, 45.0)
+        self.turn_speed_spin.setSingleStep(1.0)
+        self.turn_speed_spin.setValue(10.0)
+
+        self.robot_speed_label = QLabel("速度倍率: 1.00x / 转向步进: 10.0°")
+
+        self.forward_btn = QPushButton("前进")
+        self.forward_btn.clicked.connect(lambda: self.send_robot_command("FORWARD"))
+        self.back_btn = QPushButton("后退")
+        self.back_btn.clicked.connect(lambda: self.send_robot_command("BACK"))
+        self.left_btn = QPushButton("左转")
+        self.left_btn.clicked.connect(lambda: self.send_robot_command("LEFT"))
+        self.right_btn = QPushButton("右转")
+        self.right_btn.clicked.connect(lambda: self.send_robot_command("RIGHT"))
+        self.stop_btn = QPushButton("停止")
+        self.stop_btn.clicked.connect(lambda: self.send_robot_command("STOP"))
+
+        self.custom_cmd_edit = QLineEdit()
+        self.custom_cmd_edit.setPlaceholderText("输入自定义指令，例如 pick_trash、dock、biede")
+        self.send_custom_cmd_btn = QPushButton("发送指令")
+        self.send_custom_cmd_btn.clicked.connect(self.send_custom_robot_command)
+
+        ctl_grid.addWidget(QLabel("上传间隔(秒)"), 0, 0)
+        ctl_grid.addWidget(self.upload_interval_spin, 0, 1)
+        ctl_grid.addWidget(self.upload_next_btn, 0, 2)
+        ctl_grid.addWidget(self.interval_upload_btn, 0, 3)
+
+        ctl_grid.addWidget(QLabel("心跳间隔(秒)"), 1, 0)
+        ctl_grid.addWidget(self.heartbeat_interval_spin, 1, 1)
+        ctl_grid.addWidget(self.robot_sync_btn, 1, 2, 1, 2)
+
+        ctl_grid.addWidget(self.robot_pos_label, 2, 0, 1, 2)
+        ctl_grid.addWidget(self.robot_heading_label, 2, 2, 1, 2)
+        ctl_grid.addWidget(self.robot_mode_label, 3, 0, 1, 2)
+        ctl_grid.addWidget(self.robot_battery_label, 3, 2, 1, 2)
+        ctl_grid.addWidget(self.robot_server_cmd_label, 4, 0, 1, 4)
+
+        ctl_grid.addWidget(QLabel("移动速度倍率"), 5, 0)
+        ctl_grid.addWidget(self.move_speed_spin, 5, 1)
+        ctl_grid.addWidget(QLabel("转向步进(°)"), 5, 2)
+        ctl_grid.addWidget(self.turn_speed_spin, 5, 3)
+        ctl_grid.addWidget(self.robot_speed_label, 6, 0, 1, 4)
+
+        ctl_grid.addWidget(self.forward_btn, 7, 0)
+        ctl_grid.addWidget(self.back_btn, 7, 1)
+        ctl_grid.addWidget(self.left_btn, 7, 2)
+        ctl_grid.addWidget(self.right_btn, 7, 3)
+        ctl_grid.addWidget(self.stop_btn, 8, 0)
+        ctl_grid.addWidget(self.custom_cmd_edit, 8, 1, 1, 2)
+        ctl_grid.addWidget(self.send_custom_cmd_btn, 8, 3)
+
+        root_layout.addWidget(control_box)
+
         splitter = QSplitter(QT_HORIZONTAL)
         root_layout.addWidget(splitter, 1)
 
-        # 左侧：文件夹与文件列表
         left = QWidget()
         left_layout = QVBoxLayout(left)
 
@@ -194,7 +317,6 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         splitter.addWidget(left)
 
-        # 右侧：预览 + 检测结果编辑
         right = QWidget()
         right_layout = QVBoxLayout(right)
 
@@ -208,14 +330,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.image_preview = QLabel("图片预览区域")
         self.image_preview.setAlignment(QT_ALIGN_CENTER)
         self.image_preview.setMinimumHeight(300)
-        self.image_preview.setStyleSheet("border: 1px solid #d9d9d9; background: #f7f7f7;")
         preview_layout.addWidget(self.image_preview)
-
-        self.text_preview = QTextEdit()
-        self.text_preview.setReadOnly(True)
-        self.text_preview.setPlaceholderText("文本/数据文件预览")
-        self.text_preview.setMinimumHeight(160)
-        preview_layout.addWidget(self.text_preview)
 
         right_layout.addWidget(preview_box)
 
@@ -226,23 +341,11 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.batch_detect_btn = QPushButton("批量识别")
         self.batch_detect_btn.clicked.connect(self.batch_detect_files)
 
-        self.batch_detect_upload_btn = QPushButton("批量识别并上传")
-        self.batch_detect_upload_btn.clicked.connect(self.batch_detect_and_upload)
-
-        self.add_row_btn = QPushButton("新增结果行")
-        self.add_row_btn.clicked.connect(self.add_result_row)
-
-        self.del_row_btn = QPushButton("删除选中行")
-        self.del_row_btn.clicked.connect(self.delete_selected_rows)
-
         self.upload_btn = QPushButton("上传润色结果")
         self.upload_btn.clicked.connect(self.upload_results)
 
         action_row.addWidget(self.detect_btn)
         action_row.addWidget(self.batch_detect_btn)
-        action_row.addWidget(self.batch_detect_upload_btn)
-        action_row.addWidget(self.add_row_btn)
-        action_row.addWidget(self.del_row_btn)
         action_row.addStretch(1)
         action_row.addWidget(self.upload_btn)
         right_layout.addLayout(action_row)
@@ -255,17 +358,65 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMinimumHeight(150)
+        self.log_view.setMinimumHeight(110)
         right_layout.addWidget(self.log_view)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 5)
+        splitter.setStretchFactor(1, 4)
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("就绪")
 
-        self._log("Qt 操作台已启动")
+        self._log("Qt 控制台已启动")
+
+    def _apply_styles(self):
+        self.setStyleSheet(
+            """
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                            stop:0 #f5f8ff, stop:1 #ecf8f2);
+            }
+            QGroupBox {
+                border: 1px solid #d7dee8;
+                border-radius: 10px;
+                margin-top: 10px;
+                padding: 12px 10px 10px 10px;
+                background: rgba(255, 255, 255, 0.9);
+                font-weight: 600;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                color: #1e3a5f;
+            }
+            QLineEdit, QDoubleSpinBox, QTextEdit, QListWidget, QTableWidget {
+                border: 1px solid #cfd8e3;
+                border-radius: 8px;
+                background: #ffffff;
+                padding: 4px;
+            }
+            QPushButton {
+                border: 0;
+                border-radius: 8px;
+                padding: 7px 12px;
+                color: #ffffff;
+                background: #2274a5;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #1d5f87;
+            }
+            QPushButton:checked {
+                background: #1f9d74;
+            }
+            QLabel {
+                color: #24364b;
+            }
+            """
+        )
+        self.image_preview.setStyleSheet("border: 1px solid #d1d9e8; background: #f6f9ff;")
 
     # -------------------------- Helpers ---------------------------
 
@@ -292,6 +443,25 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         item = QTableWidgetItem(value)
         self.result_table.setItem(row, col, item)
 
+    def _clamp_lat(self, value: float) -> float:
+        return max(-90.0, min(90.0, value))
+
+    def _clamp_lng(self, value: float) -> float:
+        return max(-180.0, min(180.0, value))
+
+    def _heading_to_delta(self, heading_deg: float, step: float) -> tuple[float, float]:
+        rad = math.radians(heading_deg)
+        dlat = math.cos(rad) * step
+        dlng = math.sin(rad) * step
+        return dlat, dlng
+
+    def _normalize_command(self, raw: str) -> str:
+        cleaned = (raw or "").strip()
+        if not cleaned:
+            return ""
+        cmd = CMD_ALIASES.get(cleaned.lower(), cleaned.upper())
+        return cmd
+
     # ----------------------- Folder / Preview ----------------------
 
     def select_folder(self):
@@ -302,6 +472,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.current_folder = Path(folder)
         self.folder_edit.setText(folder)
         self.file_list.clear()
+        self.upload_cursor = 0
 
         files = [p for p in self.current_folder.iterdir() if p.is_file()]
         files.sort(key=lambda p: p.name.lower())
@@ -324,26 +495,21 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         if self._is_image(file_path):
             self._preview_local_image(file_path)
-            self.text_preview.setPlainText("")
             return
 
-        # 非图片文件：显示文件内容/元信息
-        self.image_preview.setText("该文件不是图片，见下方文本预览")
+        self.image_preview.setText("该文件不是图片，详细信息已输出到日志")
         self.image_preview.setPixmap(QPixmap())
 
         if self._is_text_data(file_path):
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
-                self.text_preview.setPlainText(content[:12000])
+                self._log(f"文本文件预览({file_path.name}): {content[:160].replace(chr(10), ' ')}")
             except OSError as error:
-                self.text_preview.setPlainText(f"读取失败: {error}")
+                self._log(f"读取失败: {error}")
         else:
             size_kb = file_path.stat().st_size / 1024.0
-            self.text_preview.setPlainText(
-                f"文件名: {file_path.name}\n"
-                f"路径: {file_path}\n"
-                f"大小: {size_kb:.2f} KB\n"
-                f"类型: {file_path.suffix or '无扩展名'}"
+            self._log(
+                f"文件信息: {file_path.name}, 大小 {size_kb:.2f} KB, 类型 {file_path.suffix or '无扩展名'}"
             )
 
     def _preview_local_image(self, path: Path):
@@ -444,7 +610,6 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                 }
 
             detections = payload.get("result") or []
-
             task = payload.get("task") or {}
             source_path = task.get("source_path") or f"simulator://{image_path.name}"
             result_path = payload.get("annotated_image_path")
@@ -578,6 +743,19 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         except ValueError as error:
             return {"ok": False, "message": f"上传响应解析失败: {error}", "body": {}}
 
+    def _build_upload_payload(self, image_path: Path, source_path: str, result_path: Optional[str], detections: List[dict]) -> dict:
+        return {
+            "source_type": "simulator",
+            "device_id": self.device_edit.text().strip() or None,
+            "latitude": self.lat_spin.value(),
+            "longitude": self.lng_spin.value(),
+            "location": self.location_edit.text().strip() or "模拟道路",
+            "source_path": source_path or f"simulator://{image_path.name}",
+            "result_path": result_path,
+            "detections": detections,
+            "frame_index": 0,
+        }
+
     def batch_detect_and_upload(self):
         image_files = self._list_image_files()
         if not image_files:
@@ -604,18 +782,12 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
             detect_ok += 1
             detections = self._to_upload_detections(detect_result["detections"])
-
-            payload = {
-                "source_type": "simulator",
-                "device_id": self.device_edit.text().strip() or None,
-                "latitude": self.lat_spin.value(),
-                "longitude": self.lng_spin.value(),
-                "location": self.location_edit.text().strip() or "模拟道路",
-                "source_path": detect_result["source_path"] or f"simulator://{image_path.name}",
-                "result_path": detect_result["result_path"],
-                "detections": detections,
-                "frame_index": 0,
-            }
+            payload = self._build_upload_payload(
+                image_path,
+                detect_result["source_path"] or f"simulator://{image_path.name}",
+                detect_result["result_path"],
+                detections,
+            )
 
             upload_result = self._post_ingest_payload(payload)
             if not upload_result["ok"]:
@@ -645,6 +817,371 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                 f"失败: {fail_count}"
             ),
         )
+
+    # -------------------- Interval / Single Upload --------------------
+
+    def _on_upload_interval_changed(self):
+        if self.upload_timer.isActive():
+            ms = int(self.upload_interval_spin.value() * 1000)
+            self.upload_timer.setInterval(ms)
+
+    def toggle_interval_upload(self):
+        if self.interval_upload_btn.isChecked():
+            image_files = self._list_image_files()
+            if not image_files:
+                self._warn("当前目录没有可上传图片")
+                self.interval_upload_btn.setChecked(False)
+                return
+            if self.upload_cursor >= len(image_files):
+                self.upload_cursor = 0
+
+            ms = int(self.upload_interval_spin.value() * 1000)
+            self.upload_timer.start(ms)
+            self.interval_upload_btn.setText("停止间隔上传")
+            self._log(f"间隔上传已开启，间隔 {self.upload_interval_spin.value():.1f} 秒")
+        else:
+            self.upload_timer.stop()
+            self.interval_upload_btn.setText("开启间隔上传")
+            self._log("间隔上传已停止")
+
+    def upload_next_single(self):
+        self._upload_next_image_once()
+
+    def _upload_next_image_once(self):
+        image_files = self._list_image_files()
+        if not image_files:
+            if self.upload_timer.isActive():
+                self.upload_timer.stop()
+            self.interval_upload_btn.setChecked(False)
+            self.interval_upload_btn.setText("开启间隔上传")
+            self._warn("当前目录没有可上传图片")
+            return
+
+        if self.upload_cursor >= len(image_files):
+            self.upload_cursor = 0
+            if self.upload_timer.isActive():
+                self.upload_timer.stop()
+                self.interval_upload_btn.setChecked(False)
+                self.interval_upload_btn.setText("开启间隔上传")
+                self._log("间隔上传已完成一轮")
+            return
+
+        image_path = image_files[self.upload_cursor]
+        self.upload_cursor += 1
+
+        detect_result = self._detect_image_file(image_path, show_preview=False)
+        if not detect_result["ok"]:
+            self._log(f"单张流程失败({image_path.name}): {detect_result['message']}")
+            return
+
+        detections = self._to_upload_detections(detect_result["detections"])
+        payload = self._build_upload_payload(
+            image_path,
+            detect_result["source_path"] or f"simulator://{image_path.name}",
+            detect_result["result_path"],
+            detections,
+        )
+
+        upload_result = self._post_ingest_payload(payload)
+        if not upload_result["ok"]:
+            self._log(f"单张上传失败({image_path.name}): {upload_result['message']}")
+            return
+
+        self.current_file = image_path
+        self.last_source_path = payload["source_path"]
+        self.last_result_path = payload["result_path"]
+        self._fill_result_table(detect_result["detections"])
+
+        if self.last_result_path:
+            self._preview_remote_annotated(self.last_result_path)
+
+        body = upload_result["body"]
+        self._log(
+            f"单张上传成功: {image_path.name}, task_id={body.get('task_id')}, inserted={body.get('inserted_items')}"
+        )
+
+    # ---------------------- Robot Simulation ----------------------
+
+    def _on_heartbeat_interval_changed(self):
+        if self.robot_timer.isActive():
+            self.robot_timer.setInterval(int(self.heartbeat_interval_spin.value() * 1000))
+
+    def toggle_robot_sync(self):
+        if self.robot_sync_btn.isChecked():
+            self.robot_sync_btn.setText("停止机器人同步")
+            self.robot_timer.start(int(self.heartbeat_interval_spin.value() * 1000))
+            self._ensure_robot_registered()
+            self._log("机器人同步已开启，位置将持续变化并上报")
+        else:
+            self.robot_sync_btn.setText("开启机器人同步")
+            self.robot_timer.stop()
+            self._log("机器人同步已停止")
+
+    def _robot_tick(self):
+        self._apply_robot_motion()
+        self._sync_robot_heartbeat()
+        self._update_robot_dashboard()
+
+    def _apply_robot_motion(self):
+        lat = self.lat_spin.value()
+        lng = self.lng_spin.value()
+
+        if not self.robot_paused:
+            if self.robot_nav_target is not None:
+                tlat, tlng = self.robot_nav_target
+                dist = math.sqrt((tlat - lat) ** 2 + (tlng - lng) ** 2)
+                if dist <= NAV_ARRIVE_THRESHOLD:
+                    self.robot_nav_target = None
+                    self.robot_moving = None
+                    self._log(f"已到达目标 ({tlat:.6f}, {tlng:.6f})")
+                else:
+                    target_heading = math.degrees(math.atan2(tlng - lng, tlat - lat)) % 360
+                    self.robot_heading = target_heading
+                    step = min(dist * NAV_STEP_RATIO, MOVE_STEP_DEG * self.move_speed_spin.value() * FAST_MULTIPLIER)
+                    dlat, dlng = self._heading_to_delta(target_heading, step)
+                    lat += dlat
+                    lng += dlng
+            elif self.robot_moving:
+                mode = self.robot_moving
+                move_step = MOVE_STEP_DEG * self.move_speed_spin.value()
+                turn_step = self.turn_speed_spin.value()
+                if mode == "FORWARD":
+                    step = move_step
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
+                elif mode == "BACK":
+                    step = -move_step
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
+                elif mode == "SLOW_FORWARD":
+                    step = move_step * SLOW_MULTIPLIER
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
+                elif mode == "FAST_FORWARD":
+                    step = move_step * FAST_MULTIPLIER
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
+                elif mode == "LEFT":
+                    self.robot_heading = (self.robot_heading - turn_step) % 360
+                elif mode == "RIGHT":
+                    self.robot_heading = (self.robot_heading + turn_step) % 360
+                elif mode == "SPIN_LEFT":
+                    self.robot_heading = (self.robot_heading - turn_step * 1.8) % 360
+                elif mode == "SPIN_RIGHT":
+                    self.robot_heading = (self.robot_heading + turn_step * 1.8) % 360
+
+        lat = self._clamp_lat(lat)
+        lng = self._clamp_lng(lng)
+        self.lat_spin.setValue(lat)
+        self.lng_spin.setValue(lng)
+        self.robot_battery = max(0.0, self.robot_battery - BATTERY_DRAIN_PER_BEAT)
+
+    def _ensure_robot_registered(self):
+        base = self._api_base()
+        if not base.startswith("http"):
+            return
+
+        heartbeat = self._post_robot_heartbeat()
+        if heartbeat.get("ok"):
+            return
+
+        if heartbeat.get("status") == 403:
+            url = f"{base}/api/robot/register"
+            payload = {
+                "device_id": self.device_edit.text().strip(),
+                "name": "SimRobotQt",
+            }
+            try:
+                resp = requests.post(url, json=payload, timeout=5)
+                body = resp.json() if resp.content else {}
+                if body.get("ok"):
+                    self._log("机器人已自动注册")
+                    self._refresh_robot_id()
+                else:
+                    self._log(f"机器人注册失败: {body}")
+            except requests.RequestException as error:
+                self._log(f"机器人注册请求失败: {error}")
+            except ValueError as error:
+                self._log(f"机器人注册响应解析失败: {error}")
+
+    def _post_robot_heartbeat(self) -> dict:
+        base = self._api_base()
+        url = f"{base}/api/robot/heartbeat"
+        payload = {
+            "device_id": self.device_edit.text().strip(),
+            "lat": round(self.lat_spin.value(), 6),
+            "lng": round(self.lng_spin.value(), 6),
+            "status": "PAUSED" if self.robot_paused else "ONLINE",
+            "battery": round(self.robot_battery, 1),
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=5)
+            body = resp.json() if resp.content else {}
+            return {
+                "ok": bool(body.get("ok")),
+                "status": resp.status_code,
+                "body": body,
+            }
+        except requests.RequestException as error:
+            self._log(f"心跳请求失败: {error}")
+            return {"ok": False, "status": None, "body": {}}
+        except ValueError as error:
+            self._log(f"心跳响应解析失败: {error}")
+            return {"ok": False, "status": None, "body": {}}
+
+    def _sync_robot_heartbeat(self):
+        result = self._post_robot_heartbeat()
+        if not result["ok"]:
+            if result["status"] == 403:
+                self._ensure_robot_registered()
+            return
+
+        body = result["body"]
+        command = body.get("command") or "IDLE"
+        target = body.get("target") or {}
+        self.last_server_command = str(command)
+        self._handle_server_command(command, target)
+
+    def _handle_server_command(self, command: str, target: dict):
+        if command in (None, "", "IDLE"):
+            return
+        if command == "NAVIGATE":
+            tlat = target.get("lat")
+            tlng = target.get("lng")
+            if tlat is not None and tlng is not None:
+                self.robot_nav_target = (float(tlat), float(tlng))
+                self.robot_moving = "NAVIGATE"
+            return
+        self._apply_local_command(str(command))
+
+    def _apply_local_command(self, command: str):
+        cmd = self._normalize_command(command)
+        if not cmd:
+            return
+
+        if cmd in {"STOP", "HOLD_POSITION"}:
+            self.robot_moving = None
+            self.robot_nav_target = None
+        elif cmd in {"FORWARD", "BACK", "SLOW_FORWARD", "FAST_FORWARD", "LEFT", "RIGHT", "SPIN_LEFT", "SPIN_RIGHT"}:
+            self.robot_nav_target = None
+            self.robot_moving = cmd
+        elif cmd == "PAUSE":
+            self.robot_paused = True
+        elif cmd == "RESUME":
+            self.robot_paused = False
+        elif cmd == "CANCEL_NAVIGATION":
+            self.robot_nav_target = None
+            self.robot_moving = None
+        elif cmd == "RESET":
+            self.robot_heading = 0.0
+            self.robot_moving = None
+            self.robot_nav_target = None
+            self.robot_paused = False
+        elif cmd == "RETURN_HOME":
+            self.robot_nav_target = (30.500000, 114.300000)
+            self.robot_moving = "NAVIGATE"
+        elif cmd in {"PICK_TRASH", "DOCK"}:
+            pass
+
+    def _refresh_robot_id(self):
+        base = self._api_base()
+        url = f"{base}/api/robot/list"
+        try:
+            resp = requests.get(url, timeout=5)
+            body = resp.json() if resp.content else {}
+            if not body.get("ok"):
+                return
+            device_id = self.device_edit.text().strip()
+            for robot in body.get("robots", []):
+                if robot.get("device_id") == device_id:
+                    robot_id = robot.get("id")
+                    self.robot_db_id = int(robot_id) if robot_id is not None else None
+                    return
+        except (requests.RequestException, ValueError, TypeError):
+            return
+
+    def _post_control_command(self, command: str) -> tuple[bool, str]:
+        base = self._api_base()
+        if not base.startswith("http"):
+            return False, "服务器地址格式无效"
+
+        if self.robot_db_id is None:
+            self._refresh_robot_id()
+        if self.robot_db_id is None:
+            return False, "未获取到机器人 ID（请先确保机器人已注册并心跳成功）"
+
+        url = f"{base}/api/robot/control"
+        payload = {
+            "id": self.robot_db_id,
+            "command": command,
+        }
+
+        try:
+            resp = requests.post(url, json=payload, timeout=5)
+            body = resp.json() if resp.content else {}
+            if resp.status_code >= 400 or not body.get("ok", False):
+                return False, body.get("msg") or body.get("message") or f"HTTP {resp.status_code}"
+            return True, "ok"
+        except requests.RequestException as error:
+            return False, f"控制请求失败: {error}"
+        except ValueError as error:
+            return False, f"控制响应解析失败: {error}"
+
+    def send_robot_command(self, command: str):
+        cmd = self._normalize_command(command)
+        if not cmd:
+            self._warn("控制指令不能为空")
+            return
+
+        self._apply_local_command(cmd)
+        ok, message = self._post_control_command(cmd)
+        if ok:
+            self._log(f"控制指令已发送: {cmd}")
+        else:
+            self._log(f"控制指令发送失败({cmd}): {message}，已本地执行模拟")
+
+        self._update_robot_dashboard()
+
+    def send_custom_robot_command(self):
+        raw = self.custom_cmd_edit.text().strip()
+        if not raw:
+            self._warn("请输入指令")
+            return
+
+        cmd = self._normalize_command(raw)
+        self.send_robot_command(cmd)
+
+    def _update_robot_dashboard(self):
+        self.robot_pos_label.setText(f"位置: ({self.lat_spin.value():.6f}, {self.lng_spin.value():.6f})")
+        self.robot_heading_label.setText(f"朝向: {self.robot_heading:.1f}°")
+        mode_text = self.robot_moving or ("暂停" if self.robot_paused else "静止")
+        self.robot_mode_label.setText(f"动作: {mode_text}")
+        self.robot_battery_label.setText(f"电量: {self.robot_battery:.1f}%")
+        self.robot_server_cmd_label.setText(f"服务器指令: {self.last_server_command}")
+        self.robot_speed_label.setText(
+            f"速度倍率: {self.move_speed_spin.value():.2f}x / 转向步进: {self.turn_speed_spin.value():.1f}°"
+        )
+
+    # ------------------------ Edit / Upload -----------------------
+
+    def add_result_row(self):
+        row = self.result_table.rowCount()
+        self.result_table.insertRow(row)
+        self._set_table_value(row, 0, "Unknown")
+        self._set_table_value(row, 1, "0.5000")
+        self._set_table_value(row, 2, "0")
+        self._set_table_value(row, 3, "0")
+        self._set_table_value(row, 4, "10")
+        self._set_table_value(row, 5, "10")
+
+    def delete_selected_rows(self):
+        selected_rows = sorted({item.row() for item in self.result_table.selectedItems()}, reverse=True)
+        for row in selected_rows:
+            self.result_table.removeRow(row)
 
     def _normalize_confidence(self, raw) -> float:
         if raw is None:
@@ -683,23 +1220,6 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             self._set_table_value(row, 3, str(int(float(bbox[1]))))
             self._set_table_value(row, 4, str(int(float(bbox[2]))))
             self._set_table_value(row, 5, str(int(float(bbox[3]))))
-
-    # ------------------------ Edit / Upload -----------------------
-
-    def add_result_row(self):
-        row = self.result_table.rowCount()
-        self.result_table.insertRow(row)
-        self._set_table_value(row, 0, "Unknown")
-        self._set_table_value(row, 1, "0.5000")
-        self._set_table_value(row, 2, "0")
-        self._set_table_value(row, 3, "0")
-        self._set_table_value(row, 4, "10")
-        self._set_table_value(row, 5, "10")
-
-    def delete_selected_rows(self):
-        selected_rows = sorted({item.row() for item in self.result_table.selectedItems()}, reverse=True)
-        for row in selected_rows:
-            self.result_table.removeRow(row)
 
     def _collect_table_detections(self) -> List[dict]:
         detections: List[dict] = []

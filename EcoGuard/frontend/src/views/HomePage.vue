@@ -48,7 +48,7 @@ function syncRobotMarkers(robots) {
     markers[id] = L.marker([robot.lat, robot.lng], {
       icon: L.divIcon({
         className: 'map-dot-icon',
-        html: '<span class="map-dot"></span>',
+        html: '<span class="map-dot map-dot-robot"></span>',
         iconSize: [14, 14],
         iconAnchor: [7, 7],
       }),
@@ -196,7 +196,7 @@ onBeforeUnmount(() => {
               <li><RouterLink to="/robot"><div class="icon icon-robot"></div><div class="control-title">机器人管理</div></RouterLink></li>
               <li><RouterLink to="/result"><div class="icon icon-task"></div><div class="control-title">任务管理</div></RouterLink></li>
               <li><RouterLink to="/stats"><div class="icon icon-data"></div><div class="control-title">数据分析</div></RouterLink></li>
-              <li><RouterLink to="/upload"><div class="icon icon-settings"></div><div class="control-title">手动上传</div></RouterLink></li>
+              <li><RouterLink to="/train"><div class="icon icon-data"></div><div class="control-title">继续训练</div></RouterLink></li>
             </ul>
           </div>
         </div>

@@ -44,14 +44,8 @@ export function postJson(url, body) {
 }
 
 export async function postForm(url, formData) {
-  const response = await fetch(url, {
+  return requestJson(url, {
     method: 'POST',
     body: formData,
-    credentials: 'same-origin',
-    headers: {
-      Accept: 'application/json',
-    },
   })
-
-  return parseJson(response)
 }

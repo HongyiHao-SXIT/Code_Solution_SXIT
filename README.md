@@ -53,7 +53,7 @@
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/<your-username>/Code_Solution_SXIT.git
+git clone https://github.com/HongyiHao-SXIT/Code_Solution_SXIT.git
 cd Code_Solution_SXIT
 ```
 

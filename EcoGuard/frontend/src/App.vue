@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { postJson } from './lib/api'
-import { clearSessionUser, pushFlash, removeFlash, sessionState } from './stores/session'
+import { clearSessionUser, pushFlash, sessionState } from './stores/session'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,7 +13,6 @@ const navItems = [
   { to: '/robot', label: '机器人管理', match: ['/robot'] },
   { to: '/result', label: '检测结果', match: ['/result'] },
   { to: '/stats', label: '统计分析', match: ['/stats'] },
-  { to: '/upload', label: '上传检测', match: ['/upload'] },
   { to: '/train', label: '继续训练', match: ['/train'] },
 ]
 let timerId = null
@@ -93,18 +92,6 @@ onBeforeUnmount(() => {
         </div>
         <div class="header-date">{{ headerDate }}</div>
         <div class="header-week">{{ headerWeek }}</div>
-      </div>
-    </div>
-
-    <div v-if="sessionState.flashes.length" class="flash-stack">
-      <div
-        v-for="(item, index) in sessionState.flashes"
-        :key="item.id || `${item.category}-${item.message}-${index}`"
-        class="flash-item"
-        :class="item.category || 'success'"
-        @click="item.id && removeFlash(item.id)"
-      >
-        {{ item.message }}
       </div>
     </div>
 

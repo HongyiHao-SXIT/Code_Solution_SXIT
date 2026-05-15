@@ -1,6 +1,5 @@
 import time
 import logging
-from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import requests
@@ -8,10 +7,9 @@ import requests
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.stats_data_helpers import query_hotspot_source_rows
+from api.stats_hotspot_service import build_hotspot_payload
 from api.stats_summary_service import build_summary_payload
 from database.db import db
-from services.search_engine import HybridSearchEngine
 
 stats_bp = Blueprint('stats_bp', __name__)
 logger = logging.getLogger(__name__)
@@ -39,68 +37,31 @@ _hotspot_geo_cache_lock = Lock()
 _nominatim_lock = Lock()
 _nominatim_last_call_ts = 0.0
 _NOMINATIM_MIN_INTERVAL = 1.1
+_EMPTY_REGION = {
+    'province': '',
+    'city': '',
+    'district': '',
+    'town': '',
+    'road': '',
+    'display_name': '',
+}
 
 
-def _build_hotspot_payload_from_local_engine(lookback_days, top_k):
-    query_start = time.perf_counter()
-    cutoff_time = datetime.now() - timedelta(days=int(lookback_days))
-    rows = query_hotspot_source_rows(cutoff_time=cutoff_time)
-    query_ms = (time.perf_counter() - query_start) * 1000.0
+def _copy_payload_for_cache(payload):
+    return dict(payload) if isinstance(payload, dict) else payload
 
-    events = []
-    for index, row in enumerate(rows):
-        created_at = row.created_at
-        if not created_at:
-            continue
 
-        detection_count = getattr(row, 'detection_count', 0) or 0
-        task_count = getattr(row, 'task_count', 0) or 0
-        volume = float(detection_count) + float(task_count) * 0.5
+def _empty_region():
+    return dict(_EMPTY_REGION)
 
-        events.append(
-            {
-                'id': index + 1,
-                'longitude': row.longitude,
-                'latitude': row.latitude,
-                'timestamp': created_at.isoformat(),
-                'waste_type': row.label or 'unknown',
-                'volume': max(0.1, volume),
-            }
-        )
 
-    engine = HybridSearchEngine()
-    engine.fit(events)
-    hotspots = engine.build_hotspots(top_k=top_k)
-
-    payload = {
-        'ok': True,
-        'summary': {
-            'cells_analyzed': len(hotspots),
-            'tasks_used': len(rows),
-            'detections_used': len(events),
-        },
-        'hotspots': hotspots,
-        'recommendations': [
-            '已切换为本地混合索引引擎（KDTree + PCA）计算热点。',
-            '建议优先派发巡检到 TOP 风险网格并结合实时回传动态调整。',
-        ],
-        'chart_data': {
-            'labels': [f"TOP {item.get('rank', idx + 1)}" for idx, item in enumerate(hotspots)],
-            'values': [item.get('predicted_count', 0) for item in hotspots],
-        },
-        'perf': {
-            'cache_hit': False,
-            'query_ms': round(query_ms, 2),
-            'geocode_ms': 0.0,
-            'total_ms': round(query_ms, 2),
-            'source': 'local_hybrid_search_engine',
-        },
-    }
-
-    geocode_start = time.perf_counter()
-    _attach_hotspot_regions(payload)
-    payload['perf']['geocode_ms'] = round((time.perf_counter() - geocode_start) * 1000.0, 2)
-    return payload
+def _apply_region_to_hotspot(hotspot, region):
+    hotspot['province'] = region.get('province', '')
+    hotspot['city'] = region.get('city', '')
+    hotspot['district'] = region.get('district', '')
+    hotspot['town'] = region.get('town', '')
+    hotspot['road'] = region.get('road', '')
+    hotspot['display_name'] = region.get('display_name', '')
 
 
 def _bounded_int_arg(name, default_value, min_value, max_value):
@@ -136,14 +97,14 @@ def _get_hotspot_cache(cache_key):
             _hotspot_cache.pop(cache_key, None)
         return None
     payload = cached.get('payload')
-    return dict(payload) if isinstance(payload, dict) else payload
+    return _copy_payload_for_cache(payload)
 
 
 def _set_hotspot_cache(cache_key, payload):
     with _hotspot_cache_lock:
         _hotspot_cache[cache_key] = {
             'ts': time.time(),
-            'payload': dict(payload) if isinstance(payload, dict) else payload,
+            'payload': _copy_payload_for_cache(payload),
         }
         _prune_cache_by_ts(_hotspot_cache, HOTSPOT_CACHE_MAX_ENTRIES)
 
@@ -169,14 +130,7 @@ def _nominatim_rate_limit():
 
 def _resolve_hotspot_region(lat, lng):
     if lat is None or lng is None:
-        return {
-            'province': '',
-            'city': '',
-            'district': '',
-            'town': '',
-            'road': '',
-            'display_name': '',
-        }
+        return _empty_region()
 
     cache_key = (round(float(lat), 4), round(float(lng), 4))
     now_ts = time.time()
@@ -184,7 +138,7 @@ def _resolve_hotspot_region(lat, lng):
         cached = _hotspot_geo_cache.get(cache_key)
     cached_ttl = cached.get('ttl', HOTSPOT_GEO_CACHE_TTL_SECONDS) if cached else HOTSPOT_GEO_CACHE_TTL_SECONDS
     if cached and (now_ts - cached.get('ts', 0.0)) < cached_ttl:
-        return cached.get('value', {})
+        return cached.get('value', _empty_region())
 
     try:
         geo_response = None
@@ -233,14 +187,7 @@ def _resolve_hotspot_region(lat, lng):
         cache_ttl = HOTSPOT_GEO_CACHE_TTL_SECONDS
     except Exception as error:
         logger.warning('热点位置解析失败 lat=%s lng=%s error=%s', lat, lng, error)
-        region_value = {
-            'province': '',
-            'city': '',
-            'district': '',
-            'town': '',
-            'road': '',
-            'display_name': '',
-        }
+        region_value = _empty_region()
         cache_ttl = HOTSPOT_GEO_FAILURE_CACHE_TTL_SECONDS
 
     with _hotspot_geo_cache_lock:
@@ -287,14 +234,7 @@ def _attach_hotspot_regions(payload):
             try:
                 coord_to_region[key] = _resolve_hotspot_region(lat, lng)
             except Exception:
-                coord_to_region[key] = {
-                    'province': '',
-                    'city': '',
-                    'district': '',
-                    'town': '',
-                    'road': '',
-                    'display_name': '',
-                }
+                coord_to_region[key] = _empty_region()
     else:
         with ThreadPoolExecutor(max_workers=HOTSPOT_GEO_MAX_WORKERS) as executor:
             future_map = {
@@ -306,24 +246,12 @@ def _attach_hotspot_regions(payload):
                 try:
                     coord_to_region[key] = future.result()
                 except Exception:
-                    coord_to_region[key] = {
-                        'province': '',
-                        'city': '',
-                        'district': '',
-                        'town': '',
-                        'road': '',
-                        'display_name': '',
-                    }
+                    coord_to_region[key] = _empty_region()
 
     for index, key, _, _ in valid_targets:
         hotspot = hotspots[index]
-        region = coord_to_region.get(key, {})
-        hotspot['province'] = region.get('province', '')
-        hotspot['city'] = region.get('city', '')
-        hotspot['district'] = region.get('district', '')
-        hotspot['town'] = region.get('town', '')
-        hotspot['road'] = region.get('road', '')
-        hotspot['display_name'] = region.get('display_name', '')
+        region = coord_to_region.get(key, _empty_region())
+        _apply_region_to_hotspot(hotspot, region)
 
 
 @stats_bp.route('/summary')
@@ -370,13 +298,16 @@ def load_hotspots():
         return jsonify(cached_payload)
 
     try:
-        payload = _build_hotspot_payload_from_local_engine(
+        payload = build_hotspot_payload(
             lookback_days=lookback_days,
             top_k=top_k,
+            attach_hotspot_regions=_attach_hotspot_regions,
+            logger=logger,
         )
 
         # Keep route-level cache timer to preserve existing endpoint behavior.
-        payload['perf']['total_ms'] = round((time.perf_counter() - total_start) * 1000.0, 2)
+        if isinstance(payload.get('perf'), dict):
+            payload['perf']['total_ms'] = round((time.perf_counter() - total_start) * 1000.0, 2)
         _set_hotspot_cache(cache_key, payload)
         return jsonify(payload)
     except SQLAlchemyError:

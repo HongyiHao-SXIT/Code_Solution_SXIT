@@ -98,11 +98,20 @@ def register_error_handler(app):
     def render_error(error):
         if request.path.startswith('/api'):
             if isinstance(error, HTTPException):
+                message = error.description
+                if error.code == 413 and request.path.startswith('/api/train'):
+                    train_max_content_length = app.config.get('TRAIN_MAX_CONTENT_LENGTH')
+                    if isinstance(train_max_content_length, int) and train_max_content_length > 0:
+                        limit_mb = round(train_max_content_length / (1024 * 1024), 2)
+                        message = f'训练数据包过大，当前上限为 {limit_mb} MB。'
+                    else:
+                        message = '训练数据包过大，请压缩数据集后重试。'
+
                 return jsonify({
                     'ok': False,
                     'code': error.code,
                     'name': error.name,
-                    'message': error.description,
+                    'message': message,
                 }), error.code
 
             logging.exception('An error occurred during an API request.')

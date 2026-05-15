@@ -4,6 +4,27 @@ import uuid
 from werkzeug.utils import secure_filename
 
 
+def _is_path_within(base_path, target_path):
+    return os.path.abspath(target_path).startswith(os.path.abspath(base_path))
+
+
+def _find_default_data_yaml(job_dataset_dir):
+    candidates = []
+    for root, _, files in os.walk(job_dataset_dir):
+        for file_name in files:
+            if file_name.lower() in {'data.yaml', 'data.yml'}:
+                full_path = os.path.join(root, file_name)
+                rel_path = os.path.relpath(full_path, job_dataset_dir).replace('\\', '/')
+                candidates.append(rel_path)
+
+    if not candidates:
+        return None
+
+    # Prefer shallow paths first so common dataset/data.yaml wins.
+    candidates.sort(key=lambda item: (item.count('/'), len(item), item))
+    return candidates[0]
+
+
 def ensure_training_roots(base_dir):
     training_root = os.path.join(base_dir, 'data', 'training')
     dataset_root = os.path.join(training_root, 'datasets')
@@ -28,13 +49,45 @@ def init_job_dataset(dataset_zip, dataset_root):
 
 
 def resolve_data_yaml(job_dataset_dir, raw_yaml):
-    yaml_relative = (raw_yaml or 'data.yaml').strip().replace('\\', '/')
+    yaml_relative = (raw_yaml or 'data.yaml').strip().replace('\\', '/') or 'data.yaml'
     yaml_path = os.path.normpath(os.path.join(job_dataset_dir, yaml_relative))
-    if not yaml_path.startswith(os.path.abspath(job_dataset_dir)):
+    if not _is_path_within(job_dataset_dir, yaml_path):
         raise ValueError('data_yaml 路径非法。')
+
+    if not os.path.exists(yaml_path):
+        auto_yaml_relative = _find_default_data_yaml(job_dataset_dir)
+        if auto_yaml_relative:
+            yaml_relative = auto_yaml_relative
+            yaml_path = os.path.normpath(os.path.join(job_dataset_dir, yaml_relative))
+
     if not os.path.exists(yaml_path):
         raise ValueError(f'未在数据集中找到配置文件: {yaml_relative}')
+
     return yaml_relative, yaml_path
+
+
+def resolve_default_weight_path(base_dir, default_weight_path):
+    candidates = []
+
+    if default_weight_path:
+        if os.path.isabs(default_weight_path):
+            candidates.append(default_weight_path)
+        else:
+            candidates.append(os.path.join(base_dir, default_weight_path))
+
+    candidates.extend([
+        os.path.join(base_dir, 'model', 'yolo11n.pt'),
+        os.path.join(base_dir, 'model', 'yolo11s.pt'),
+    ])
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+
+    # Keep original path for explicit error reporting in caller.
+    if default_weight_path and os.path.isabs(default_weight_path):
+        return default_weight_path
+    return os.path.join(base_dir, default_weight_path or 'best.pt')
 
 
 def resolve_weight_path(custom_weight, weights_root, job_id, base_dir, default_weight_path):
@@ -44,9 +97,7 @@ def resolve_weight_path(custom_weight, weights_root, job_id, base_dir, default_w
         custom_weight.save(weight_path)
         return weight_path
 
-    if os.path.isabs(default_weight_path):
-        return default_weight_path
-    return os.path.join(base_dir, default_weight_path)
+    return resolve_default_weight_path(base_dir, default_weight_path)
 
 
 def parse_training_options(form_data, job_id, parse_int, parse_bool):
