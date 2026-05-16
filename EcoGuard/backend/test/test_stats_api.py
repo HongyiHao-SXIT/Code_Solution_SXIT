@@ -7,7 +7,7 @@ from flask import Flask
 from api.stats_api import stats_bp
 import api.stats_api as stats_api
 from database.db import db
-from database.models import DetectItem, DetectTask
+from database.models import DetectItem, DetectTask, User
 
 
 class HotspotsApiTestCase(unittest.TestCase):
@@ -15,6 +15,7 @@ class HotspotsApiTestCase(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update({
             'TESTING': True,
+            'SECRET_KEY': 'test-secret',
             'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         })
@@ -37,11 +38,28 @@ class HotspotsApiTestCase(unittest.TestCase):
         self._clear_stats_caches()
 
     def _seed_hotspot_data(self):
+        admin_user = User(username='admin_user', role='admin')
+        admin_user.set_password('password123')
+        admin_user.set_security_code('1111')
+        user_1 = User(username='hotspot_user_1')
+        user_1.set_password('password123')
+        user_1.set_security_code('2222')
+        user_2 = User(username='hotspot_user_2')
+        user_2.set_password('password123')
+        user_2.set_security_code('3333')
+        db.session.add_all([admin_user, user_1, user_2])
+        db.session.flush()
+
+        self.admin_id = admin_user.id
+        self.user_1_id = user_1.id
+        self.user_2_id = user_2.id
+
         task_1 = DetectTask(
             source_type='image',
             source_path='static/uploads/a.jpg',
             result_path='static/results/a.jpg',
             status='DONE',
+            user_id=user_1.id,
             latitude=33.485,
             longitude=111.945,
             created_at=datetime.now() - timedelta(days=1),
@@ -51,6 +69,7 @@ class HotspotsApiTestCase(unittest.TestCase):
             source_path='static/uploads/b.jpg',
             result_path='static/results/b.jpg',
             status='DONE',
+            user_id=user_2.id,
             latitude=34.325,
             longitude=114.515,
             created_at=datetime.now() - timedelta(days=2),
@@ -67,13 +86,24 @@ class HotspotsApiTestCase(unittest.TestCase):
         db.session.commit()
 
     def _clear_stats_caches(self):
+        with stats_api._summary_cache_lock:
+            stats_api._summary_cache.clear()
         with stats_api._hotspot_cache_lock:
             stats_api._hotspot_cache.clear()
         with stats_api._hotspot_geo_cache_lock:
             stats_api._hotspot_geo_cache.clear()
 
+    def _login_as(self, user_id):
+        with self.client.session_transaction() as session_ctx:
+            session_ctx['user_id'] = user_id
+
+    def test_hotspots_requires_login(self):
+        response = self.client.get('/api/stats/hotspots')
+        self.assertEqual(response.status_code, 401)
+
     @patch('api.stats_api._resolve_hotspot_region')
     def test_hotspots_returns_perf_and_region_fields(self, mock_region):
+        self._login_as(self.admin_id)
         mock_region.return_value = {
             'province': '河南省',
             'city': '南阳市',
@@ -107,6 +137,7 @@ class HotspotsApiTestCase(unittest.TestCase):
 
     @patch('api.stats_api._resolve_hotspot_region')
     def test_hotspots_cache_hit_on_second_request(self, mock_region):
+        self._login_as(self.admin_id)
         mock_region.return_value = {
             'province': '河南省',
             'city': '南阳市',
@@ -182,6 +213,26 @@ class HotspotsApiTestCase(unittest.TestCase):
 
         cache_entry = stats_api._hotspot_geo_cache[(34.325, 114.515)]
         self.assertEqual(cache_entry['ttl'], stats_api.HOTSPOT_GEO_CACHE_TTL_SECONDS)
+
+    @patch('api.stats_api._resolve_hotspot_region')
+    def test_hotspots_non_admin_only_uses_owned_records(self, mock_region):
+        self._login_as(self.user_1_id)
+        mock_region.return_value = {
+            'province': '河南省',
+            'city': '南阳市',
+            'district': '内乡县',
+            'town': '',
+            'road': '',
+            'display_name': '内乡县, 南阳市, 河南省, 中国',
+        }
+
+        response = self.client.get('/api/stats/hotspots')
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertTrue(payload.get('ok'))
+        summary = payload.get('summary') or {}
+        self.assertEqual(summary.get('tasks_used'), 1)
 
 
 if __name__ == '__main__':

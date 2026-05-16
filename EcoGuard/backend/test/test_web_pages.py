@@ -61,7 +61,7 @@ class WebPagesTestCase(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
 
     def test_pages_redirect_to_login_when_not_authenticated(self):
-        for path in ['/', '/result', f'/result/{self.task_id}', '/upload', '/stats', '/robot', f'/robot/{self.robot_id}']:
+        for path in ['/', '/result', f'/result/{self.task_id}', '/upload', '/stats', '/robot', f'/robot/{self.robot_id}', '/users']:
             resp = self.client.get(path, follow_redirects=False)
             self.assertEqual(resp.status_code, 302)
             self.assertIn('/login', resp.headers.get('Location', ''))
@@ -76,6 +76,20 @@ class WebPagesTestCase(unittest.TestCase):
         for path in ['/', '/result', '/upload', '/stats', '/robot']:
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 200)
+
+        user_admin_resp = self.client.get('/users', follow_redirects=False)
+        self.assertEqual(user_admin_resp.status_code, 302)
+        self.assertIn('/robot', user_admin_resp.headers.get('Location', ''))
+
+    def test_admin_can_access_users_page(self):
+        login_resp = self.client.post('/login', data={
+            'username': 'admin_user',
+            'password': 'password123',
+        }, follow_redirects=False)
+        self.assertEqual(login_resp.status_code, 302)
+
+        resp = self.client.get('/users')
+        self.assertEqual(resp.status_code, 200)
 
     def test_detail_pages(self):
         login_resp = self.client.post('/login', data={

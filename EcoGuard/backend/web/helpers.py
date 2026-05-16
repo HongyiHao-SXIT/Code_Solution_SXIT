@@ -22,9 +22,10 @@ from .services_captcha import (
     _issue_captcha_payload,
     _verify_captcha_payload,
 )
+from .utils import _normalize_secret
 
 APP_TITLE = 'EcoGuard 垃圾拾捡机器人管理系统'
-DEFAULT_LOGIN_NEXT = '/robot'
+DEFAULT_LOGIN_NEXT = '/'
 
 
 def _get_current_user():
@@ -36,10 +37,6 @@ def _get_current_user():
 
 def _is_admin_user(user):
     return bool(user and getattr(user, 'role', '') == 'admin')
-
-
-def _normalize_secret(raw_value):
-    return str(raw_value or '').strip()
 
 
 def _find_user_by_username(username):
@@ -71,24 +68,35 @@ def _parse_page_number(raw_value):
     return page_number if page_number > 0 else 1
 
 
-def _query_latest_tasks(page_number, page_size=16):
-    return DetectTask.query.order_by(DetectTask.id.desc()).paginate(
+def _query_latest_tasks(page_number, page_size=16, current_user=None):
+    query = DetectTask.query
+    if not _is_admin_user(current_user):
+        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
+
+    return query.order_by(DetectTask.id.desc()).paginate(
         page=page_number,
         per_page=page_size,
         error_out=False,
     )
 
 
-def _query_latest_items(page_number, page_size=16):
-    return DetectItem.query.options(selectinload(cast(Any, DetectItem).task)).order_by(DetectItem.id.desc()).paginate(
+def _query_latest_items(page_number, page_size=16, current_user=None):
+    query = DetectItem.query.options(selectinload(cast(Any, DetectItem).task)).join(DetectTask, DetectItem.task_id == DetectTask.id)
+    if not _is_admin_user(current_user):
+        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
+
+    return query.order_by(DetectItem.id.desc()).paginate(
         page=page_number,
         per_page=page_size,
         error_out=False,
     )
 
 
-def _load_task_with_items(task_id):
-    return DetectTask.query.options(selectinload(cast(Any, DetectTask).items)).filter_by(id=task_id).first_or_404()
+def _load_task_with_items(task_id, current_user=None):
+    query = DetectTask.query.options(selectinload(cast(Any, DetectTask).items)).filter_by(id=task_id)
+    if not _is_admin_user(current_user):
+        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
+    return query.first_or_404()
 
 
 def _delete_task_files(task):
@@ -115,9 +123,10 @@ def _delete_task_with_items(task_id):
     db.session.commit()
 
 
-def _create_user(username, password, security_code):
-    user = User()
-    user.username = username
+def _create_user(username, password, security_code, role='user', organization=''):
+    user = User(username=username)
+    user.role = role or 'user'
+    user.organization = _normalize_secret(organization)
     user.set_password(password)
     user.set_security_code(security_code)
     db.session.add(user)
@@ -131,6 +140,7 @@ def _serialize_user(user):
     return {
         'id': user.id,
         'username': user.username,
+        'organization': user.organization,
         'role': user.role,
     }
 
@@ -213,6 +223,7 @@ def _serialize_robot(robot):
             'lat': robot.target_lat,
             'lng': robot.target_lng,
         },
+        'owner_user_id': robot.owner_user_id,
         'last_heartbeat': robot.last_heartbeat.isoformat() if robot.last_heartbeat else None,
     }
 

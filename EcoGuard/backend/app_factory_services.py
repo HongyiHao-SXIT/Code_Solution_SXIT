@@ -4,6 +4,7 @@ import random
 from logging.handlers import RotatingFileHandler
 
 from flask import jsonify, request
+from sqlalchemy import inspect, text
 from werkzeug.exceptions import HTTPException
 
 
@@ -46,6 +47,45 @@ def ensure_bootstrap_admin_impl(app, db_obj, user_model, os_module=os, logger=No
     except Exception:
         db_obj.session.rollback()
         logger_obj.exception('Failed to create bootstrap admin account.')
+
+
+def ensure_ownership_schema_impl(app, db_obj, logger=None):
+    logger_obj = logger or logging.getLogger(__name__)
+
+    try:
+        inspector = inspect(db_obj.engine)
+        table_column_names = {
+            'user': {column['name'] for column in inspector.get_columns('user')},
+            'detect_task': {column['name'] for column in inspector.get_columns('detect_task')},
+            'robot': {column['name'] for column in inspector.get_columns('robot')},
+        }
+        table_index_names = {
+            'detect_task': {index['name'] for index in inspector.get_indexes('detect_task')},
+            'robot': {index['name'] for index in inspector.get_indexes('robot')},
+        }
+
+        ddl_statements = []
+        if 'organization' not in table_column_names['user']:
+            ddl_statements.append('ALTER TABLE `user` ADD COLUMN organization VARCHAR(120)')
+        if 'user_id' not in table_column_names['detect_task']:
+            ddl_statements.append('ALTER TABLE detect_task ADD COLUMN user_id INTEGER')
+        if 'owner_user_id' not in table_column_names['robot']:
+            ddl_statements.append('ALTER TABLE robot ADD COLUMN owner_user_id INTEGER')
+        if 'idx_detect_task_user_id' not in table_index_names['detect_task']:
+            ddl_statements.append('CREATE INDEX idx_detect_task_user_id ON detect_task (user_id)')
+        if 'idx_robot_owner_user_id' not in table_index_names['robot']:
+            ddl_statements.append('CREATE INDEX idx_robot_owner_user_id ON robot (owner_user_id)')
+
+        if not ddl_statements:
+            return
+
+        for statement in ddl_statements:
+            db_obj.session.execute(text(statement))
+        db_obj.session.commit()
+        logger_obj.info('Ownership schema patch applied. statements=%s', len(ddl_statements))
+    except Exception:
+        db_obj.session.rollback()
+        logger_obj.exception('Failed to patch ownership schema.')
 
 
 def mask_database_uri(database_uri):

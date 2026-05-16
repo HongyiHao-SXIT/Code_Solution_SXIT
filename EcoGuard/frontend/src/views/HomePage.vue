@@ -4,12 +4,15 @@ import * as echarts from 'echarts'
 import L from 'leaflet'
 import { getJson } from '../lib/api'
 import { escapeHtml } from '../lib/escape'
+import { focusMapToDenseRegion } from '../lib/mapFocus'
 import { pushFlash } from '../stores/session'
 
 const robotList = ref([])
 let chart = null
 let map = null
 let refreshTimer = null
+let hasAutoFocused = false
+let mapInteracted = false
 const markers = {}
 const taskMarkers = {}
 
@@ -123,6 +126,14 @@ async function loadDashboard() {
     renderPieChart(payload.pie_data || [])
     syncRobotMarkers(payload.robot_list || [])
     syncTaskMarkers(payload.locations || [])
+
+    if (!mapInteracted && !hasAutoFocused) {
+      const focusPoints = [
+        ...(payload.locations || []).map((item) => ({ lat: item.lat, lng: item.lng })),
+        ...(payload.robot_list || []).map((item) => ({ lat: item.lat, lng: item.lng })),
+      ]
+      hasAutoFocused = focusMapToDenseRegion(map, focusPoints, { gridSize: 0.32, maxZoom: 15, singlePointZoom: 14 })
+    }
   } catch (error) {
     pushFlash(error.message || '首页数据加载失败', 'error')
   }
@@ -134,6 +145,9 @@ onMounted(() => {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map)
+  map.on('dragstart zoomstart', () => {
+    mapInteracted = true
+  })
   loadDashboard()
   refreshTimer = window.setInterval(loadDashboard, 3000)
   window.setTimeout(() => map?.invalidateSize(), 500)

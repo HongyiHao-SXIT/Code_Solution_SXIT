@@ -33,6 +33,12 @@ def _current_user_can_delete_results():
     return _is_admin_user(_get_current_user())
 
 
+def _can_access_robot(current_user, robot):
+    if _is_admin_user(current_user):
+        return True
+    return getattr(robot, 'owner_user_id', None) == getattr(current_user, 'id', None)
+
+
 def _request_page_number():
     return _parse_page_number(request.args.get('page'))
 
@@ -57,7 +63,8 @@ def _build_ops_action(message, category, path, source):
 @web_bp.route('/api/web/tasks', methods=['GET'])
 @api_login_required
 def get_tasks_json():
-    pagination = _query_latest_tasks(_request_page_number())
+    current_user = _get_current_user()
+    pagination = _query_latest_tasks(_request_page_number(), current_user=current_user)
     payload = build_tasks_payload(
         pagination=pagination,
         can_delete=_current_user_can_delete_results(),
@@ -69,7 +76,8 @@ def get_tasks_json():
 @web_bp.route('/api/web/items', methods=['GET'])
 @api_login_required
 def get_items_json():
-    pagination = _query_latest_items(_request_page_number())
+    current_user = _get_current_user()
+    pagination = _query_latest_items(_request_page_number(), current_user=current_user)
     payload = build_items_payload(
         pagination=pagination,
         can_delete=_current_user_can_delete_results(),
@@ -81,7 +89,8 @@ def get_items_json():
 @web_bp.route('/api/web/tasks/<int:task_id>', methods=['GET'])
 @api_login_required
 def get_task_detail_json(task_id):
-    task = _load_task_with_items(task_id)
+    current_user = _get_current_user()
+    task = _load_task_with_items(task_id, current_user=current_user)
     payload = build_task_detail_payload(
         task=task,
         can_delete=_current_user_can_delete_results(),
@@ -104,7 +113,10 @@ def delete_result_json(task_id):
 @web_bp.route('/api/web/robots/<int:robot_id>', methods=['GET'])
 @api_login_required
 def get_robot_detail_json(robot_id):
+    current_user = _get_current_user()
     robot = db.get_or_404(Robot, robot_id)
+    if not _can_access_robot(current_user, robot):
+        return jsonify({'ok': False, 'message': '无权限访问该机器人'}), 403
     return jsonify({
         'ok': True,
         'robot': _serialize_robot(robot),

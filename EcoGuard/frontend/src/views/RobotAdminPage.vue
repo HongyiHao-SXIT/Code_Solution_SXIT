@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import L from 'leaflet'
 import { getJson, postJson } from '../lib/api'
 import { escapeHtml } from '../lib/escape'
+import { focusMapToDenseRegion } from '../lib/mapFocus'
 import { pushFlash } from '../stores/session'
 
 const robots = ref([])
@@ -11,6 +12,8 @@ const name = ref('')
 const selectedRobotId = ref(null)
 let map = null
 let pollTimer = null
+let hasAutoFocused = false
+let mapInteracted = false
 const markers = {}
 
 function resetRobotForm() {
@@ -67,8 +70,14 @@ function renderMarkers(robotList) {
 async function loadRobots() {
   try {
     const payload = await getJson('/api/robot/list')
-    robots.value = payload.robots || []
+    const rawRobots = payload.robots || []
+    robots.value = [...rawRobots].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
     renderMarkers(robots.value)
+
+    if (!mapInteracted && !hasAutoFocused) {
+      const focusPoints = robots.value.map((item) => ({ lat: item.lat, lng: item.lng }))
+      hasAutoFocused = focusMapToDenseRegion(map, focusPoints, { gridSize: 0.24, maxZoom: 16, singlePointZoom: 15 })
+    }
   } catch (error) {
     pushFlash(error.message || '机器人列表加载失败', 'error')
   }
@@ -99,7 +108,7 @@ async function deleteRobot(robotId) {
 
 async function navigateRobot(event) {
   if (!selectedRobotId.value) {
-    pushFlash('请先在表格中选择一个机器人', 'warning')
+    pushFlash('请先在卡片中选择一个机器人', 'warning')
     return
   }
 
@@ -129,6 +138,9 @@ onMounted(() => {
   map = L.map('robotMap').setView([30, 110], 5)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map)
   map.on('dblclick', navigateRobot)
+  map.on('dragstart zoomstart', () => {
+    mapInteracted = true
+  })
   loadRobots()
   pollTimer = window.setInterval(loadRobots, 5000)
   window.setTimeout(() => map?.invalidateSize(), 500)
@@ -154,27 +166,34 @@ onBeforeUnmount(() => {
               <input v-model.trim="name" class="input-control" placeholder="名称">
               <button type="button" class="btn-add-robot" @click="addRobot">添加</button>
             </div>
-            <div class="table-wrap max-h-520">
-              <table class="data-table">
-                <thead>
-                  <tr><th>名称</th><th>状态</th><th>操作</th></tr>
-                </thead>
-                <tbody id="robotTableBody">
-                  <tr
-                    v-for="robot in robots"
-                    :key="robot.id"
-                    :class="{ selected: String(robot.id) === selectedRobotId }"
-                    @click="setSelectedRobot(robot.id)"
-                  >
-                    <td>{{ robot.name }}</td>
-                    <td class="col-status">{{ robot.status }}</td>
-                    <td class="col-actions">
-                      <RouterLink class="btn-operate" :to="`/robot/${robot.id}`">操作</RouterLink>
-                      <button type="button" class="btn-delete" @click.stop="deleteRobot(robot.id)">删除</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="robot-card-wrap max-h-520">
+              <transition-group name="robot-pop" tag="div" class="robot-card-list">
+                <div
+                  v-for="robot in robots"
+                  :key="robot.id"
+                  class="robot-list-card"
+                  :class="{ selected: String(robot.id) === selectedRobotId }"
+                  @click="setSelectedRobot(robot.id)"
+                >
+                  <div class="robot-list-card-head">
+                    <div class="robot-list-card-name">{{ robot.name || '-' }}</div>
+                    <div class="robot-list-card-id">#{{ robot.id }}</div>
+                  </div>
+                  <div class="robot-list-card-meta">
+                    <span class="meta-label">设备ID</span>
+                    <span class="meta-value">{{ robot.device_id || '-' }}</span>
+                  </div>
+                  <div class="robot-list-card-meta">
+                    <span class="meta-label">状态</span>
+                    <span class="meta-value status-pill">{{ robot.status || '-' }}</span>
+                  </div>
+                  <div class="robot-list-card-actions">
+                    <RouterLink class="btn-operate" :to="`/robot/${robot.id}`">操作</RouterLink>
+                    <button type="button" class="btn-delete" @click.stop="deleteRobot(robot.id)">删除</button>
+                  </div>
+                </div>
+              </transition-group>
+              <div v-if="!robots.length" class="empty-state">暂无机器人，先添加一个设备</div>
             </div>
           </div>
         </div>
@@ -252,39 +271,102 @@ onBeforeUnmount(() => {
   border-color: #0e9f6e;
 }
 
-.robot-admin-layout .table-wrap {
+.robot-card-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.robot-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.robot-list-card {
+  padding: 12px;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   background: #fff;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.robot-admin-layout .data-table {
-  border-collapse: separate;
-  border-spacing: 0 8px;
-}
-
-.robot-admin-layout .data-table thead th {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-.robot-admin-layout .data-table tbody tr {
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
-}
-
-.robot-admin-layout .data-table tbody tr:hover {
+.robot-list-card:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1);
+  border-color: #87cdb8;
+  box-shadow: 0 10px 22px rgba(22, 121, 97, 0.12);
 }
 
-.robot-admin-layout .data-table tbody tr td:first-child {
-  border-radius: 10px 0 0 10px;
+.robot-list-card.selected {
+  border-color: #10b981;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35), 0 12px 24px rgba(16, 185, 129, 0.16);
 }
 
-.robot-admin-layout .data-table tbody tr td:last-child {
-  border-radius: 0 10px 10px 0;
+.robot-list-card-head,
+.robot-list-card-meta,
+.robot-list-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.robot-list-card-head {
+  margin-bottom: 10px;
+}
+
+.robot-list-card-name {
+  color: #1f2937;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.robot-list-card-id {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.robot-list-card-meta {
+  margin-bottom: 8px;
+}
+
+.meta-label {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.meta-value {
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #0d7f5a;
+}
+
+.robot-list-card-actions {
+  margin-top: 4px;
+}
+
+.robot-pop-enter-active {
+  animation: robot-card-pop 360ms ease;
+}
+
+@keyframes robot-card-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.02) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .robot-admin-layout .map-main,

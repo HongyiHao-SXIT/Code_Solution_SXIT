@@ -7,16 +7,14 @@ import time
 
 from flask import current_app, session
 
+from .utils import _normalize_secret
+
 try:
     from PIL import Image, ImageDraw, ImageFilter
 except ImportError:
     Image = None
     ImageDraw = None
     ImageFilter = None
-
-
-def _normalize_secret(raw_value):
-    return str(raw_value or '').strip()
 
 
 def _is_captcha_enforced():

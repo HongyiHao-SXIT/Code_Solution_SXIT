@@ -3,7 +3,7 @@ import threading
 import uuid
 from typing import Any, cast
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
 from api.detect_helpers import (
     _HAS_CV2,
@@ -40,10 +40,42 @@ from api.detect_route_services import (
     parse_video_request,
 )
 from database.db import db
-from database.models import DetectTask
+from database.models import DetectTask, Robot, User
 
 
 detect_bp = Blueprint('detect_bp', __name__)
+
+
+def _get_session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return db.session.get(User, user_id)
+
+
+def _is_admin_user(user):
+    return bool(user and getattr(user, 'role', '') == 'admin')
+
+
+def _resolve_task_owner_user_id(device_id=None):
+    current_user = _get_session_user()
+    if current_user:
+        return current_user.id
+
+    if device_id:
+        robot = Robot.query.filter_by(device_id=device_id).first()
+        if robot:
+            return robot.owner_user_id
+
+    return None
+
+
+def _can_access_task(user, task):
+    if not user:
+        return False
+    if _is_admin_user(user):
+        return True
+    return getattr(task, 'user_id', None) == getattr(user, 'id', None)
 
 
 @detect_bp.route('/detect/dependencies', methods=['GET'])
@@ -83,6 +115,7 @@ def ingest_detection_result():
         lng=ingest_context['longitude'],
         location=ingest_context['location'],
         device_id=ingest_context['device_id'],
+        user_id=_resolve_task_owner_user_id(ingest_context['device_id']),
     )
 
     try:
@@ -166,7 +199,8 @@ def detect_image():
             lat=image_context['latitude'],
             lng=image_context['longitude'],
             location=resolved_location,
-            device_id=image_context['device_id']
+            device_id=image_context['device_id'],
+            user_id=_resolve_task_owner_user_id(image_context['device_id']),
         )
 
         detection_results = save_detect_items(task, detections, snapshot_rel_path=result_rel_path, frame_index=0)
@@ -293,7 +327,8 @@ def detect_video():
         lat=video_context['latitude'],
         lng=video_context['longitude'],
         location=resolved_location,
-        device_id=video_context['device_id']
+        device_id=video_context['device_id'],
+        user_id=_resolve_task_owner_user_id(video_context['device_id']),
     )
 
     # 立即返回 task_id，后台线程异步处理视频
@@ -318,6 +353,12 @@ def detect_video_status(task_id):
     task = db.session.get(DetectTask, task_id)
     if not task:
         return json_error('任务不存在', 404)
+
+    current_user = _get_session_user()
+    if not current_user:
+        return json_error('请先登录', 401)
+    if not _can_access_task(current_user, task):
+        return json_error('无权限访问该任务', 403)
 
     payload = {
         'task_id': task.id,

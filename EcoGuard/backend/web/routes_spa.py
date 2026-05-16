@@ -1,4 +1,4 @@
-from flask import jsonify, redirect
+from flask import jsonify, redirect, request
 
 from .blueprint import web_bp
 from .helpers import _delete_task_with_items, _get_current_user, _is_admin_user, _render_main_spa, page_login_required
@@ -12,10 +12,13 @@ from .services_spa import build_not_found_payload, can_delete_result_for_page, i
 @web_bp.route('/stats')
 @web_bp.route('/robot')
 @web_bp.route('/robot/<int:robot_id>')
+@web_bp.route('/users')
 @page_login_required
-def show_protected_spa_page(task_id=None, robot_id=None):
-    _ = task_id
-    _ = robot_id
+def show_protected_spa_page(**_route_params):
+    if request.path == '/users':
+        current_user = _get_current_user()
+        if not _is_admin_user(current_user):
+            return redirect('/robot')
     return _render_main_spa()
 
 

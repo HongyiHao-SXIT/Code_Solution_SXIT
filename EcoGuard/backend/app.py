@@ -21,6 +21,7 @@ from api.detect_helpers import log_detection_dependency_report
 from app_factory_services import (
     configure_root_logging,
     ensure_bootstrap_admin_impl,
+    ensure_ownership_schema_impl,
     mask_database_uri,
     register_blueprints,
     register_error_handler,
@@ -47,6 +48,14 @@ def ensure_bootstrap_admin(app):
         db_obj=db,
         user_model=User,
         os_module=os,
+        logger=logging.getLogger(__name__),
+    )
+
+
+def ensure_ownership_schema(app):
+    ensure_ownership_schema_impl(
+        app=app,
+        db_obj=db,
         logger=logging.getLogger(__name__),
     )
 
@@ -83,6 +92,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        ensure_ownership_schema(app)
         ensure_bootstrap_admin(app)
 
     register_blueprints(

@@ -36,13 +36,23 @@ def build_location_points(tasks):
     return points
 
 
-def build_pie_data():
-    count_rows = db.session.query(
+def build_pie_data(current_user=None, is_admin_checker=None):
+    is_admin = bool(is_admin_checker and is_admin_checker(current_user))
+    current_user_id = getattr(current_user, 'id', None)
+
+    count_rows_query = db.session.query(
         DetectItem.label, func.count(DetectItem.id)
+    ).join(
+        DetectTask, DetectItem.task_id == DetectTask.id
     ).filter(
         DetectItem.label.isnot(None),
         DetectItem.label != ''
-    ).group_by(DetectItem.label).all()
+    )
+
+    if not is_admin:
+        count_rows_query = count_rows_query.filter(DetectTask.user_id == current_user_id)
+
+    count_rows = count_rows_query.group_by(DetectItem.label).all()
     return [{'name': row[0], 'value': row[1]} for row in count_rows]
 
 
@@ -80,8 +90,15 @@ def build_line_data(trend_rows):
     }
 
 
-def build_robot_snapshot(now):
-    robots = Robot.query.all()
+def build_robot_snapshot(now, current_user=None, is_admin_checker=None):
+    is_admin = bool(is_admin_checker and is_admin_checker(current_user))
+    current_user_id = getattr(current_user, 'id', None)
+
+    if is_admin:
+        robots = Robot.query.all()
+    else:
+        robots = Robot.query.filter_by(owner_user_id=current_user_id).all()
+
     robot_items = []
     robots_to_update = []
     for robot in robots:
@@ -111,15 +128,19 @@ def persist_robot_status_updates(robots_to_update):
     except SQLAlchemyError as error:
         db.session.rollback()
         logger.warning('机器人在线状态回写失败: %s', error)
+def query_hotspot_source_rows(cutoff_time=None, current_user=None, is_admin_checker=None):
+    is_admin = bool(is_admin_checker and is_admin_checker(current_user))
+    current_user_id = getattr(current_user, 'id', None)
 
-
-def query_hotspot_source_rows(cutoff_time=None):
     filters = [
         DetectTask.latitude.isnot(None),
         DetectTask.longitude.isnot(None),
         DetectItem.label.isnot(None),
         DetectItem.label != '',
     ]
+    if not is_admin:
+        filters.append(DetectTask.user_id == current_user_id)
+
     if cutoff_time is not None:
         filters.append(DetectTask.created_at >= cutoff_time)
 

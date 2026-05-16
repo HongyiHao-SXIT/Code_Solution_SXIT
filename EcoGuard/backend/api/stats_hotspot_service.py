@@ -5,9 +5,13 @@ from api.stats_data_helpers import query_hotspot_source_rows
 from ml.algorithm import build_hotspot_forecast
 
 
-def _query_rows_with_fallback(lookback_days, now, logger=None):
+def _query_rows_with_fallback(lookback_days, now, current_user, is_admin_checker, logger=None):
     cutoff_time = now - timedelta(days=lookback_days)
-    hotspot_rows = query_hotspot_source_rows(cutoff_time)
+    hotspot_rows = query_hotspot_source_rows(
+        cutoff_time,
+        current_user=current_user,
+        is_admin_checker=is_admin_checker,
+    )
 
     actual_lookback = lookback_days
     if hotspot_rows:
@@ -17,7 +21,11 @@ def _query_rows_with_fallback(lookback_days, now, logger=None):
     if logger is not None:
         logger.info('热点预测：%d 天窗口内无数据，降级使用全量历史数据', lookback_days)
 
-    hotspot_rows = query_hotspot_source_rows(cutoff_time=None)
+    hotspot_rows = query_hotspot_source_rows(
+        cutoff_time=None,
+        current_user=current_user,
+        is_admin_checker=is_admin_checker,
+    )
     if not hotspot_rows:
         return hotspot_rows, actual_lookback
 
@@ -26,7 +34,7 @@ def _query_rows_with_fallback(lookback_days, now, logger=None):
     return hotspot_rows, actual_lookback
 
 
-def build_hotspot_payload(lookback_days, top_k, attach_hotspot_regions, logger=None):
+def build_hotspot_payload(lookback_days, top_k, current_user, is_admin_checker, attach_hotspot_regions, logger=None):
     total_start = time.perf_counter()
 
     query_start = time.perf_counter()
@@ -34,6 +42,8 @@ def build_hotspot_payload(lookback_days, top_k, attach_hotspot_regions, logger=N
     hotspot_rows, actual_lookback = _query_rows_with_fallback(
         lookback_days=lookback_days,
         now=now,
+        current_user=current_user,
+        is_admin_checker=is_admin_checker,
         logger=logger,
     )
 

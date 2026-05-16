@@ -26,24 +26,43 @@ class WebItemsApiTestCase(unittest.TestCase):
             user = User(username='tester')
             user.set_password('password123')
             user.set_security_code('1234')
+            other_user = User(username='tester_other')
+            other_user.set_password('password123')
+            other_user.set_security_code('5678')
             db.session.add(user)
+            db.session.add(other_user)
+            db.session.flush()
 
             task = DetectTask(
                 source_type='parser',
                 source_path='ingest://abc',
                 result_path='static/results/a.jpg',
                 status='DONE',
+                user_id=user.id,
                 created_at=datetime.now(),
                 latitude=10.0,
                 longitude=20.0,
                 device_id='parser-01',
             )
+            other_task = DetectTask(
+                source_type='parser',
+                source_path='ingest://other',
+                result_path='static/results/b.jpg',
+                status='DONE',
+                user_id=other_user.id,
+                created_at=datetime.now(),
+                latitude=11.0,
+                longitude=21.0,
+                device_id='parser-02',
+            )
             db.session.add(task)
+            db.session.add(other_task)
             db.session.flush()
 
             db.session.add_all([
                 DetectItem(task_id=task.id, label='Plastic', confidence=0.9, x1=1, y1=1, x2=11, y2=11, area=100),
                 DetectItem(task_id=task.id, label='Metal', confidence=0.8, x1=2, y1=2, x2=12, y2=12, area=100),
+                DetectItem(task_id=other_task.id, label='Glass', confidence=0.7, x1=3, y1=3, x2=13, y2=13, area=100),
             ])
             db.session.commit()
 
@@ -80,6 +99,7 @@ class WebItemsApiTestCase(unittest.TestCase):
         self.assertIn('task_id', items[0])
         self.assertIn('label', items[0])
         self.assertIn('display_location', items[0])
+        self.assertTrue(all(item.get('device_id') == 'parser-01' for item in items))
 
     def test_client_log_endpoint_persists_ops_log(self):
         self._login()

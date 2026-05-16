@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `username` VARCHAR(50) NOT NULL UNIQUE,
     `password_hash` VARCHAR(255) NOT NULL,
     `security_code` VARCHAR(255) NOT NULL,
+    `organization` VARCHAR(120) NULL,
     `role` VARCHAR(20) NOT NULL DEFAULT 'user'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS `detect_task` (
     `location` VARCHAR(100),
     `status` VARCHAR(20) DEFAULT 'PENDING',
     `error_msg` TEXT,
+    `user_id` INT NULL,
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `latitude` FLOAT,
     `longitude` FLOAT
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS `robot` (
     `name` VARCHAR(100),
     `status` VARCHAR(20) DEFAULT 'OFFLINE',
     `ip_address` VARCHAR(50),
+    `owner_user_id` INT NULL,
     `current_lat` FLOAT,
     `current_lng` FLOAT,
     `target_lat` FLOAT,
@@ -65,12 +68,17 @@ CREATE TABLE IF NOT EXISTS `robot` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Performance indexes for hotspot/statistics queries
 CREATE INDEX `idx_detect_task_time_geo`
     ON `detect_task` (`created_at`, `latitude`, `longitude`);
+
+CREATE INDEX `idx_detect_task_user_id`
+    ON `detect_task` (`user_id`);
 
 CREATE INDEX `idx_detect_item_task_label`
     ON `detect_item` (`task_id`, `label`);
 
 CREATE INDEX `idx_detect_item_label`
     ON `detect_item` (`label`);
+
+CREATE INDEX `idx_robot_owner_user_id`
+    ON `robot` (`owner_user_id`);

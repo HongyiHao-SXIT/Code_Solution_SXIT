@@ -4,20 +4,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import requests
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.stats_hotspot_service import build_hotspot_payload
 from api.stats_summary_service import build_summary_payload
 from database.db import db
+from database.models import User
 
 stats_bp = Blueprint('stats_bp', __name__)
 logger = logging.getLogger(__name__)
 SUMMARY_CACHE_TTL_SECONDS = 2.0
-_summary_cache = {
-    'ts': 0.0,
-    'data': None,
-}
+_summary_cache = {}
 _summary_cache_lock = Lock()
 HOTSPOT_CACHE_TTL_SECONDS = 45.0
 HOTSPOT_CACHE_MAX_ENTRIES = 64
@@ -51,6 +49,30 @@ def _copy_payload_for_cache(payload):
     return dict(payload) if isinstance(payload, dict) else payload
 
 
+def _is_admin_user(user):
+    return bool(user and getattr(user, 'role', '') == 'admin')
+
+
+def _get_session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return db.session.get(User, user_id)
+
+
+def _require_session_user():
+    current_user = _get_session_user()
+    if not current_user:
+        return None, (jsonify({'ok': False, 'error': '请先登录'}), 401)
+    return current_user, None
+
+
+def _stats_scope_key(current_user):
+    if _is_admin_user(current_user):
+        return 'admin:all'
+    return f'user:{getattr(current_user, "id", "anonymous")}'
+
+
 def _empty_region():
     return dict(_EMPTY_REGION)
 
@@ -75,6 +97,26 @@ def _bounded_int_arg(name, default_value, min_value, max_value):
 
 def _hotspot_cache_key(lookback_days, top_k):
     return f'{int(lookback_days)}:{int(top_k)}'
+
+
+def _summary_cache_get(cache_key, current_ts):
+    with _summary_cache_lock:
+        cached = _summary_cache.get(cache_key)
+    if not cached:
+        return None
+    if (current_ts - cached.get('ts', 0.0)) >= SUMMARY_CACHE_TTL_SECONDS:
+        with _summary_cache_lock:
+            _summary_cache.pop(cache_key, None)
+        return None
+    return _copy_payload_for_cache(cached.get('data'))
+
+
+def _summary_cache_set(cache_key, payload, current_ts):
+    with _summary_cache_lock:
+        _summary_cache[cache_key] = {
+            'ts': current_ts,
+            'data': _copy_payload_for_cache(payload),
+        }
 
 
 def _prune_cache_by_ts(cache, max_entries):
@@ -256,18 +298,23 @@ def _attach_hotspot_regions(payload):
 
 @stats_bp.route('/summary')
 def load_summary():
+    current_user, auth_error = _require_session_user()
+    if auth_error:
+        return auth_error
+
     try:
         current_ts = time.time()
-        with _summary_cache_lock:
-            cached_payload = _summary_cache.get('data')
-            cache_ts = _summary_cache.get('ts', 0.0)
-        if cached_payload is not None and (current_ts - cache_ts) < SUMMARY_CACHE_TTL_SECONDS:
+        cache_key = _stats_scope_key(current_user)
+        cached_payload = _summary_cache_get(cache_key, current_ts)
+        if cached_payload is not None:
             return jsonify(cached_payload)
 
-        payload = build_summary_payload(load_task_items_option=None)
-        with _summary_cache_lock:
-            _summary_cache['data'] = payload
-            _summary_cache['ts'] = current_ts
+        payload = build_summary_payload(
+            load_task_items_option=None,
+            current_user=current_user,
+            is_admin_checker=_is_admin_user,
+        )
+        _summary_cache_set(cache_key, payload, current_ts)
         return jsonify(payload)
     except SQLAlchemyError:
         db.session.rollback()
@@ -280,12 +327,17 @@ def load_summary():
 
 @stats_bp.route('/hotspots')
 def load_hotspots():
+    current_user, auth_error = _require_session_user()
+    if auth_error:
+        return auth_error
+
     # 默认回溯 90 天，前端可传参，上限 365 天
     lookback_days = _bounded_int_arg('lookback_days', 90, 7, 365)
     top_k = _bounded_int_arg('top_k', 6, 3, 10)
 
     total_start = time.perf_counter()
-    cache_key = _hotspot_cache_key(lookback_days, top_k)
+    cache_scope = _stats_scope_key(current_user)
+    cache_key = f'{cache_scope}:{_hotspot_cache_key(lookback_days, top_k)}'
     cached_payload = _get_hotspot_cache(cache_key)
     if cached_payload is not None:
         cached_payload['ok'] = True
@@ -301,6 +353,8 @@ def load_hotspots():
         payload = build_hotspot_payload(
             lookback_days=lookback_days,
             top_k=top_k,
+            current_user=current_user,
+            is_admin_checker=_is_admin_user,
             attach_hotspot_regions=_attach_hotspot_regions,
             logger=logger,
         )

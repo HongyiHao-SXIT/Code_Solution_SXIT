@@ -148,6 +148,7 @@ def _build_robot_item(robot, status):
         'id': robot.id,
         'device_id': robot.device_id,
         'name': robot.name,
+        'owner_user_id': getattr(robot, 'owner_user_id', None),
         'status': status,
         'lat': getattr(robot, 'current_lat', None),
         'lng': getattr(robot, 'current_lng', None),

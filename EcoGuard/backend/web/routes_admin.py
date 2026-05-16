@@ -1,0 +1,162 @@
+from flask import jsonify, request
+
+from database.db import db
+from database.models import User
+from .blueprint import web_bp
+from .helpers import (
+    _create_user,
+    _find_user_by_username,
+    _get_current_user,
+    _is_admin_user,
+    _normalize_secret,
+    _serialize_user,
+    api_login_required,
+)
+from .services_auth import AuthValidationError, ensure_register_input
+
+
+_ROLE_USER = 'user'
+_ROLE_ADMIN = 'admin'
+
+
+def _normalize_role(raw_role):
+    role = _normalize_secret(raw_role).lower()
+    if role not in {_ROLE_USER, _ROLE_ADMIN}:
+        return None
+    return role
+
+
+def _require_admin_user():
+    current_user = _get_current_user()
+    if not _is_admin_user(current_user):
+        return None, (jsonify({'ok': False, 'message': '只有管理员可以管理用户'}), 403)
+    return current_user, None
+
+
+def _count_admin_users():
+    return User.query.filter_by(role=_ROLE_ADMIN).count()
+
+
+def _serialize_user_admin_row(user, current_user_id):
+    payload = _serialize_user(user) or {}
+    payload['is_current_user'] = bool(current_user_id and user.id == current_user_id)
+    return payload
+
+
+@web_bp.route('/api/web/admin/users', methods=['GET'])
+@api_login_required
+def list_admin_users_json():
+    current_user, error_response = _require_admin_user()
+    if error_response:
+        return error_response
+
+    current_user_id = getattr(current_user, 'id', None)
+
+    users = User.query.order_by(User.id.asc()).all()
+    admin_count = sum(1 for item in users if item.role == _ROLE_ADMIN)
+
+    return jsonify({
+        'ok': True,
+        'can_manage': True,
+        'users': [_serialize_user_admin_row(item, current_user_id) for item in users],
+        'summary': {
+            'total': len(users),
+            'admin_count': admin_count,
+            'user_count': len(users) - admin_count,
+        },
+    })
+
+
+@web_bp.route('/api/web/admin/users', methods=['POST'])
+@api_login_required
+def create_admin_user_json():
+    _, error_response = _require_admin_user()
+    if error_response:
+        return error_response
+
+    payload = request.get_json(silent=True) or {}
+    username = _normalize_secret(payload.get('username'))
+    password = _normalize_secret(payload.get('password'))
+    confirm_password = _normalize_secret(payload.get('confirm_password'))
+    security_code = _normalize_secret(payload.get('security_code'))
+    organization = _normalize_secret(payload.get('organization'))
+    role = _normalize_role(payload.get('role') or _ROLE_USER)
+
+    if role is None:
+        return jsonify({'ok': False, 'message': '角色仅支持 user 或 admin'}), 400
+
+    try:
+        ensure_register_input(
+            username,
+            password,
+            confirm_password,
+            security_code,
+            organization,
+            _find_user_by_username,
+        )
+    except AuthValidationError as error:
+        return jsonify({'ok': False, 'message': error.message}), error.status_code
+
+    user = _create_user(username, password, security_code, role=role, organization=organization)
+
+    return jsonify({
+        'ok': True,
+        'message': '用户创建成功',
+        'user': _serialize_user(user),
+    })
+
+
+@web_bp.route('/api/web/admin/users/<int:user_id>/role', methods=['POST'])
+@api_login_required
+def update_admin_user_role_json(user_id):
+    current_user, error_response = _require_admin_user()
+    if error_response:
+        return error_response
+
+    payload = request.get_json(silent=True) or {}
+    next_role = _normalize_role(payload.get('role'))
+    if next_role is None:
+        return jsonify({'ok': False, 'message': '角色仅支持 user 或 admin'}), 400
+
+    target_user = db.get_or_404(User, user_id)
+    if target_user.role == next_role:
+        return jsonify({'ok': True, 'message': '角色未发生变化', 'user': _serialize_user(target_user)})
+
+    if target_user.id == current_user.id and next_role != _ROLE_ADMIN:
+        return jsonify({'ok': False, 'message': '不能将当前登录管理员降级'}), 400
+
+    if target_user.role == _ROLE_ADMIN and next_role != _ROLE_ADMIN and _count_admin_users() <= 1:
+        return jsonify({'ok': False, 'message': '系统至少需要保留一个管理员账号'}), 400
+
+    target_user.role = next_role
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'message': '用户角色更新成功',
+        'user': _serialize_user(target_user),
+    })
+
+
+@web_bp.route('/api/web/admin/users/<int:user_id>/delete', methods=['POST'])
+@api_login_required
+def delete_admin_user_json(user_id):
+    current_user, error_response = _require_admin_user()
+    if error_response:
+        return error_response
+
+    target_user = db.get_or_404(User, user_id)
+
+    if target_user.id == current_user.id:
+        return jsonify({'ok': False, 'message': '不能删除当前登录用户'}), 400
+
+    if target_user.role == _ROLE_ADMIN and _count_admin_users() <= 1:
+        return jsonify({'ok': False, 'message': '系统至少需要保留一个管理员账号'}), 400
+
+    db.session.delete(target_user)
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'message': '用户删除成功',
+    })

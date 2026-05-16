@@ -176,12 +176,13 @@ def ensure_storage_dirs():
 
 
 def create_detect_task(source_rel_path, result_rel_path=None, source_type='image', lat=None, lng=None,
-                       location='未知地点', device_id=None):
+                       location='未知地点', device_id=None, user_id=None):
     task = DetectTask(
         source_type=source_type,
         source_path=source_rel_path,
         result_path=result_rel_path,
         status='PENDING',
+        user_id=user_id,
         latitude=lat,
         longitude=lng,
         location=location,

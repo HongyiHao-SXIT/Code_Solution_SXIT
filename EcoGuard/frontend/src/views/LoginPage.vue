@@ -32,7 +32,7 @@ async function submit() {
     })
     setSessionUser(payload.user)
     pushFlash(payload.message || '登录成功', 'success')
-    await router.replace(payload.next || '/robot')
+    await router.replace(payload.next || '/')
   } catch (error) {
     pushFlash(error.message || '登录失败', 'error')
     await handleCaptchaError(error)
@@ -97,31 +97,34 @@ onMounted(() => {
 
 <style scoped>
 .auth-shell {
-  min-height: calc(100vh - 126px);
+  min-height: 100vh;
   width: 100%;
-  display: block;
-  padding: 8px 0;
+  display: grid;
+  align-items: center;
+  padding: 20px clamp(14px, 3vw, 34px);
 }
 
 .auth-surface {
-  width: 100%;
-  min-height: calc(100vh - 142px);
+  width: min(1120px, 100%);
+  min-height: min(86vh, 780px);
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(280px, 0.42fr) minmax(0, 0.58fr);
+  grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
   align-items: stretch;
-  border-radius: 20px;
-  border: 1px solid rgba(46, 122, 104, 0.24);
-  background: linear-gradient(140deg, rgba(248, 253, 250, 0.93), rgba(235, 246, 239, 0.92));
-  box-shadow: 0 20px 42px rgba(38, 101, 83, 0.18);
+  border-radius: 24px;
+  border: 1px solid rgba(37, 123, 102, 0.2);
+  background: linear-gradient(145deg, rgba(248, 254, 251, 0.95), rgba(238, 248, 242, 0.94));
+  box-shadow: 0 30px 64px rgba(31, 91, 75, 0.2);
   overflow: hidden;
 }
 
 .auth-side {
-  padding: 30px 28px;
+  padding: clamp(26px, 3vw, 38px) clamp(24px, 3vw, 36px);
   background:
-    radial-gradient(circle at 20% 10%, rgba(54, 170, 145, 0.18), transparent 44%),
-    radial-gradient(circle at 75% 85%, rgba(225, 152, 71, 0.15), transparent 42%);
-  border-right: 1px solid rgba(83, 151, 130, 0.2);
+    radial-gradient(circle at 16% 12%, rgba(62, 176, 146, 0.26), transparent 48%),
+    radial-gradient(circle at 80% 90%, rgba(221, 159, 89, 0.22), transparent 44%),
+    linear-gradient(160deg, rgba(233, 247, 240, 0.9), rgba(219, 239, 230, 0.72));
+  border-right: 1px solid rgba(71, 143, 123, 0.24);
 }
 
 .auth-kicker {
@@ -134,25 +137,32 @@ onMounted(() => {
 
 .auth-side h2 {
   margin: 0;
-  font-size: clamp(22px, 2.4vw, 30px);
+  font-size: clamp(24px, 2.8vw, 34px);
   color: #1e4f44;
 }
 
 .auth-desc {
-  margin-top: 12px;
-  line-height: 1.65;
+  margin-top: 14px;
+  line-height: 1.75;
   color: #4f746b;
 }
 
 .auth-card {
-  width: 100%;
-  padding: 30px 28px;
-  background: linear-gradient(180deg, rgba(252, 255, 253, 0.74), rgba(243, 250, 246, 0.68));
+  width: min(100%, 520px);
+  justify-self: center;
+  align-self: center;
+  padding: clamp(22px, 3vw, 32px);
+  border-radius: 18px;
+  border: 1px solid rgba(81, 148, 129, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(244, 252, 247, 0.8));
+  box-shadow: 0 16px 34px rgba(38, 104, 86, 0.14);
 }
 
 .auth-form {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  width: min(100%, 430px);
+  margin: 0 auto;
 }
 
 .field-block {
@@ -186,7 +196,8 @@ onMounted(() => {
 }
 
 .auth-submit {
-  margin-top: 4px;
+  margin-top: 6px;
+  min-height: 42px;
 }
 
 .auth-links {
@@ -201,8 +212,8 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .auth-shell {
-    min-height: auto;
-    padding: 6px 0;
+    min-height: 100vh;
+    padding: 12px;
   }
 
   .auth-surface {
@@ -217,6 +228,7 @@ onMounted(() => {
   }
 
   .auth-card {
+    width: 100%;
     padding: 20px 18px;
   }
 

@@ -96,7 +96,7 @@ def login_json():
 @web_bp.route('/api/web/register', methods=['POST'])
 def register_json():
     payload = request.get_json(silent=True) or {}
-    username, password, confirm_password, security_code = parse_register_json_payload(
+    username, password, confirm_password, security_code, organization = parse_register_json_payload(
         payload,
         normalize_secret=_normalize_secret,
     )
@@ -107,6 +107,7 @@ def register_json():
             password,
             confirm_password,
             security_code,
+            organization,
             _find_user_by_username,
         )
     except AuthValidationError as error:
@@ -116,7 +117,7 @@ def register_json():
     if not captcha_ok:
         return _captcha_error_response(captcha_error, 400, captcha_meta)
 
-    _create_user(username, password, security_code)
+    _create_user(username, password, security_code, organization=organization)
 
     return jsonify({
         'ok': True,
@@ -163,7 +164,7 @@ def register_page_compat():
     if request.method == 'GET':
         return _render_main_spa()
 
-    username, password, confirm_password, security_code = parse_register_form_payload(
+    username, password, confirm_password, security_code, organization = parse_register_form_payload(
         request.form,
         normalize_secret=_normalize_secret,
     )
@@ -174,12 +175,13 @@ def register_page_compat():
             password,
             confirm_password,
             security_code,
+            organization,
             _find_user_by_username,
         )
     except AuthValidationError as error:
         return error.message, error.status_code
 
-    _create_user(username, password, security_code)
+    _create_user(username, password, security_code, organization=organization)
 
     if current_app.config.get('TESTING', False):
         return '注册成功，请登录', 200

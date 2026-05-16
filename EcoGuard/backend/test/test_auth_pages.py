@@ -46,6 +46,7 @@ class AuthPagesTestCase(unittest.TestCase):
     def test_register_success(self):
         resp = self.client.post('/register', data={
             'username': 'new_user',
+            'organization': '测试单位A',
             'password': 'abc12345',
             'confirm_password': 'abc12345',
             'security_code': '9988',
@@ -58,6 +59,7 @@ class AuthPagesTestCase(unittest.TestCase):
             self.assertIsNotNone(created)
             assert created is not None
             self.assertTrue(created.check_password('abc12345'))
+            self.assertEqual(created.organization, '测试单位A')
 
     def test_login_success(self):
         resp = self.client.post('/login', data={

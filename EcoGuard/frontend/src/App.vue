@@ -8,16 +8,18 @@ const route = useRoute()
 const router = useRouter()
 const headerDate = ref('')
 const headerWeek = ref('')
-const navItems = [
+const authUser = computed(() => sessionState.user)
+const isAuthPage = computed(() => Boolean(route.meta?.guestOnly))
+const allNavItems = [
   { to: '/', label: '首页', match: ['/'] },
   { to: '/robot', label: '机器人管理', match: ['/robot'] },
   { to: '/result', label: '检测结果', match: ['/result'] },
   { to: '/stats', label: '统计分析', match: ['/stats'] },
+  { to: '/users', label: '用户管理', match: ['/users'], adminOnly: true },
   { to: '/train', label: '继续训练', match: ['/train'] },
 ]
+const navItems = computed(() => allNavItems.filter((item) => !item.adminOnly || authUser.value?.role === 'admin'))
 let timerId = null
-
-const authUser = computed(() => sessionState.user)
 
 function isActive(matchers) {
   return matchers.some((item) => route.path === item || route.path.startsWith(`${item}/`))
@@ -53,8 +55,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="layout-main">
-    <div class="layout-header">
+  <div class="layout-main" :class="{ 'layout-main-auth': isAuthPage }">
+    <div v-if="!isAuthPage" class="layout-header">
       <div class="layout-header-left">
         <div class="layout-brand-badge">EG</div>
         <div class="layout-nav">
@@ -95,8 +97,21 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="layout-page-container">
+    <div class="layout-page-container" :class="{ 'layout-page-auth': isAuthPage }">
       <RouterView />
     </div>
   </div>
 </template>
+
+<style scoped>
+.layout-main-auth {
+  background-image:
+    radial-gradient(circle at 14% 16%, rgba(207, 232, 219, 0.46), transparent 34%),
+    radial-gradient(circle at 86% 82%, rgba(204, 170, 128, 0.24), transparent 32%),
+    linear-gradient(160deg, rgba(237, 247, 242, 0.94), rgba(224, 239, 231, 0.96));
+}
+
+.layout-page-auth {
+  padding: 0;
+}
+</style>

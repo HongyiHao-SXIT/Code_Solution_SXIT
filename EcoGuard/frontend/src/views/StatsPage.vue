@@ -4,16 +4,19 @@ import * as echarts from 'echarts'
 import L from 'leaflet'
 import { getJson } from '../lib/api'
 import { escapeHtml } from '../lib/escape'
+import { focusMapToDenseRegion } from '../lib/mapFocus'
 import { pushFlash } from '../stores/session'
 
 let pieChart = null
 let lineChart = null
-let forecastChart = null
 let map = null
 let actualPointLayer = null
 let hotspotLayer = null
+let hasAutoFocused = false
+let mapInteracted = false
 const forecastMeta = ref([])
 const forecastHotspots = ref([])
+const hotspotProbabilityRows = ref([])
 const recommendationNotes = ref([])
 
 function asArray(value) {
@@ -25,6 +28,49 @@ function riskColor(score) {
   if (score >= 60) return '#f97316'
   if (score >= 40) return '#facc15'
   return '#22c55e'
+}
+
+function clampProbability(value) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return 0
+  return Math.max(0, Math.min(100, Math.round(numericValue)))
+}
+
+function buildHotspotProbabilityRows(hotspots) {
+  const rows = asArray(hotspots)
+  if (!rows.length) {
+    return []
+  }
+
+  const maxPredictedCount = rows.reduce((accumulator, item) => {
+    const predictedCount = Number(item?.predicted_count || 0)
+    if (!Number.isFinite(predictedCount)) {
+      return accumulator
+    }
+    return Math.max(accumulator, predictedCount)
+  }, 0)
+
+  return rows.slice(0, 6).map((item, index) => {
+    const districtText = String(
+      item?.district || item?.city || item?.town || item?.display_name || `热点 ${index + 1}`,
+    ).split(',')[0].trim()
+    const labelsText = asArray(item?.dominant_labels).join('、') || '未知垃圾'
+
+    const riskScore = Number(item?.risk_score)
+    let probability = 0
+    if (Number.isFinite(riskScore) && riskScore > 0) {
+      probability = clampProbability(riskScore)
+    } else if (maxPredictedCount > 0) {
+      probability = clampProbability((Number(item?.predicted_count || 0) / maxPredictedCount) * 100)
+    }
+
+    return {
+      id: String(item?.grid_id || item?.rank || index + 1),
+      district: districtText || `热点 ${index + 1}`,
+      probability,
+      labels: labelsText,
+    }
+  })
 }
 
 function updateForecastPanels(payload) {
@@ -74,26 +120,8 @@ async function loadStats() {
       series: asArray(summary.line_data?.series).map((item) => ({ name: item.name, type: 'line', smooth: true, data: item.values || [] })),
     })
 
-    forecastChart.setOption({
-      tooltip: { trigger: 'axis' },
-      grid: { left: 48, right: 24, top: 24, bottom: 36 },
-      xAxis: { type: 'category', data: hotspots.chart_data?.labels || [], axisLabel: { color: '#2f5b53' } },
-      yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#2f5b53' } },
-      series: [{
-        type: 'bar',
-        barWidth: '42%',
-        data: hotspots.chart_data?.values || [],
-        itemStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#fb7185' },
-            { offset: 1, color: '#f97316' },
-          ]),
-          borderRadius: [6, 6, 0, 0],
-        },
-      }],
-    })
-
     updateForecastPanels(hotspots)
+    hotspotProbabilityRows.value = buildHotspotProbabilityRows(hotspots.hotspots)
 
     actualPointLayer.clearLayers()
     asArray(summary.locations).forEach((location) => {
@@ -113,6 +141,18 @@ async function loadStats() {
         fillOpacity: 0.35,
       }).addTo(hotspotLayer).bindPopup(`TOP ${escapeHtml(item.rank)}<br>${escapeHtml(item.display_name || '未知位置')}`)
     })
+
+    if (!mapInteracted && !hasAutoFocused) {
+      const focusPoints = [
+        ...asArray(summary.locations).map((item) => ({ lat: item.lat, lng: item.lng })),
+        ...asArray(hotspots.hotspots).map((item) => ({
+          lat: item.center_lat,
+          lng: item.center_lng,
+          weight: Number(item.predicted_count || item.risk_score || 1),
+        })),
+      ]
+      hasAutoFocused = focusMapToDenseRegion(map, focusPoints, { gridSize: 0.28, maxZoom: 15, singlePointZoom: 14 })
+    }
   } catch (error) {
     pushFlash(error.message || '统计数据加载失败', 'error')
   }
@@ -121,18 +161,19 @@ async function loadStats() {
 function onResize() {
   pieChart?.resize()
   lineChart?.resize()
-  forecastChart?.resize()
   map?.invalidateSize()
 }
 
 onMounted(() => {
   pieChart = echarts.init(document.getElementById('pieChart'))
   lineChart = echarts.init(document.getElementById('lineChart'))
-  forecastChart = echarts.init(document.getElementById('forecastChart'))
   map = L.map('statsMap').setView([30, 110], 5)
   actualPointLayer = L.layerGroup().addTo(map)
   hotspotLayer = L.layerGroup().addTo(map)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map)
+  map.on('dragstart zoomstart', () => {
+    mapInteracted = true
+  })
   loadStats()
   window.setTimeout(() => map?.invalidateSize(), 500)
   window.addEventListener('resize', onResize)
@@ -142,7 +183,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   pieChart?.dispose()
   lineChart?.dispose()
-  forecastChart?.dispose()
   map?.remove()
 })
 </script>
@@ -154,7 +194,19 @@ onBeforeUnmount(() => {
       <div class="stats-grid">
         <div class="stats-card"><div class="section-title section-title-sm">垃圾种类分布</div><div id="pieChart" class="chart-fixed-260"></div></div>
         <div class="stats-card"><div class="section-title section-title-sm">全部识别趋势</div><div id="lineChart" class="chart-fixed-260"></div></div>
-        <div class="stats-card"><div class="section-title section-title-sm">未来 24 小时热点预测</div><div id="forecastChart" class="chart-fixed-260"></div></div>
+        <div class="stats-card">
+          <div class="section-title section-title-sm">未来 24 小时热点预测</div>
+          <div class="hotspot-prob-list">
+            <div v-for="item in hotspotProbabilityRows" :key="item.id" class="hotspot-prob-item">
+              <div class="hotspot-prob-main">
+                <span class="hotspot-prob-area">{{ item.district }}</span>
+                <span class="hotspot-prob-rate">{{ item.probability }}%</span>
+              </div>
+              <div class="hotspot-prob-sub">垃圾类型：{{ item.labels }}</div>
+            </div>
+            <div v-if="!hotspotProbabilityRows.length" class="forecast-list-note">暂无热点预测数据</div>
+          </div>
+        </div>
         <div class="stats-card">
           <div class="section-title section-title-sm">巡检建议</div>
           <div class="forecast-meta">
@@ -185,3 +237,60 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.stats-card .section-title {
+  color: #111827;
+}
+
+.forecast-meta-item span,
+.forecast-meta-item strong {
+  color: #111827;
+}
+
+.forecast-meta-item strong {
+  font-weight: 800;
+}
+
+.hotspot-prob-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.hotspot-prob-item {
+  border-radius: 10px;
+  border: 1px solid rgba(25, 84, 71, 0.22);
+  background: #ffffff;
+  padding: 10px;
+}
+
+.hotspot-prob-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hotspot-prob-area {
+  color: #111827;
+  font-weight: 700;
+}
+
+.hotspot-prob-rate {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(141, 196, 176, 0.24);
+}
+
+.hotspot-prob-sub {
+  margin-top: 6px;
+  color: #1f2937;
+  font-size: 13px;
+}
+</style>

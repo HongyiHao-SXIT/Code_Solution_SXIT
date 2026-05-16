@@ -22,6 +22,13 @@ def _created_at_to_datetime(value):
     return None
 
 
+def _safe_float(value, default_value=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default_value
+
+
 def _build_service_events(records, lookback_days, as_of_day):
     cutoff_day = as_of_day - timedelta(days=lookback_days - 1)
     events = []
@@ -42,6 +49,11 @@ def _build_service_events(records, lookback_days, as_of_day):
         if not _is_valid_coordinate(latitude, longitude):
             continue
 
+        latitude_value = _safe_float(latitude)
+        longitude_value = _safe_float(longitude)
+        if latitude_value is None or longitude_value is None:
+            continue
+
         detection_count = max(_safe_int(_record_value(record, 'detection_count'), 0), 0)
         task_count = max(_safe_int(_record_value(record, 'task_count'), 1), 0)
         if detection_count <= 0:
@@ -51,8 +63,8 @@ def _build_service_events(records, lookback_days, as_of_day):
         volume = float(detection_count) + float(task_count) * 0.5
         events.append({
             'id': index + 1,
-            'longitude': float(longitude),
-            'latitude': float(latitude),
+            'longitude': longitude_value,
+            'latitude': latitude_value,
             'timestamp': created_at.isoformat(),
             'waste_type': label,
             'volume': max(0.1, volume),

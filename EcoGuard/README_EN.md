@@ -1,90 +1,199 @@
-# TrashDet-YOLO11
+# EcoGuard
 
-**Project Overview**
-- **Name**: TrashDet-YOLO11 — Waste Patrol and Cleaning Robot Control Platform
-- **Purpose**: Accept image uploads (via web form or API), run object detection using a YOLO model, save annotated results and detection metadata, provide statistics and visualization, and expose basic robot management and control endpoints for integration with the `Clean_Robot` firmware.
+EcoGuard is a full-stack platform for waste inspection and cleaning robot operations, including:
+- Flask backend services (detection, statistics, robot control, training, authentication)
+- Vue 3 single-page frontend (SPA)
+- Robot firmware integration examples and local simulation scripts
 
-**Quick Start**
-- Clone the repository and change into the project root.
+The project is designed as an end-to-end loop from image capture and garbage detection to data storage, hotspot analytics, robot scheduling, and model retraining.
+
+## Feature Highlights
+
+- Image Detection
+  - Upload an image and run YOLO inference
+  - Return boxes/classes/confidence and save annotated outputs
+  - Support server-side ingest API for external detection results
+- Video Detection
+  - Upload video and process asynchronously
+  - Poll task status/results via API
+- Analytics
+  - Detection trends, class distribution, and map points
+  - Hotspot analysis with geocoding cache
+- Robot Management
+  - Registration, heartbeat/status sync, control commands, navigation
+  - Robot list and status updates
+- Online Training
+  - Upload dataset ZIP and start async training jobs
+  - Query job status, logs, and output artifacts
+- Web Auth and Operations
+  - Register/login/logout, session state, captcha
+  - Task list/detail and management APIs
+
+## Repository Layout
+
+```text
+EcoGuard/
+├─ backend/                  # Flask backend
+│  ├─ app.py                 # Backend entrypoint
+│  ├─ config.py              # Config and runtime overrides
+│  ├─ runtime_config.yaml    # Runtime business config
+│  ├─ api/                   # detect/stats/robot/train APIs
+│  ├─ web/                   # SPA-compatible routes and web APIs
+│  ├─ database/              # SQLAlchemy models and DB bootstrap
+│  ├─ inference/             # YOLO inference wrapper
+│  ├─ test/                  # Backend unit tests
+│  └─ requirements.txt       # Python dependencies
+├─ frontend/                 # Vue 3 + Vite frontend
+│  ├─ src/
+│  ├─ package.json
+│  └─ vite.config.js         # Build output: backend/static/spa
+├─ Simulator/                # Robot simulation scripts
+└─ LICENSE
+```
+
+## Requirements
+
+- Python 3.10+ (recommended)
+- Node.js 18+
+- Optional: CUDA runtime for GPU inference/training
+- Database
+  - SQLite by default
+  - MySQL supported via config overrides
+
+## Backend Quick Start
+
+1. Create and activate your Python environment.
+2. Install backend dependencies.
+3. Start the backend service.
 
 ```bash
-conda activate trashdet   # or activate your preferred Python environment
+cd backend
 pip install -r requirements.txt
+python app.py
 ```
 
-- Start the development server:
+After startup:
+- http://127.0.0.1:5000
+- Health endpoint: http://127.0.0.1:5000/health
+
+Notes:
+- `db.create_all()` runs at startup.
+- If there are no users, a bootstrap admin account is auto-created (change credentials immediately in production).
+
+## Frontend Development and Build
+
+Development mode:
 
 ```bash
-python app.py
-# Open http://localhost:5000
+cd frontend
+npm install
+npm run dev
 ```
 
-**Key Features**
-- Upload images via web UI or API and run trash detection using YOLO.
-- Save annotated images to the results directory and record tasks/items in the database.
-- Provide statistical endpoints for pie/line charts and map point data.
-- Basic robot endpoints for registration, heartbeat, control and navigation to integrate with `Clean_Robot`.
+Vite proxies `/api` requests to `http://127.0.0.1:5000` by default.
 
-**Repository Layout (high level)**
-- `app.py` — Flask application factory and entrypoint.
-- `config.py` — configuration values (adjust for your environment).
-- `requirements.txt` — Python dependencies.
-- `best.pt` — example/trained YOLO model weights (replace with your model as needed).
-- `inference/` — inference code; see `inference/yolo_detector.py` for the detector.
-- `api/` — backend REST API endpoints (`api/detect_api.py`, `api/robot_api.py`, `api/stats_api.py`).
-- `web/` — server-side page routes (`web/pages.py`).
-- `templates/`, `static/` — front-end templates and static assets (JS/CSS/images).
-- `database/` — database initialization and models (`database/models.py`).
-- `Clean_Robot/` — robot firmware and integration examples.
+Production build:
 
-**Configuration & Environment**
-- Recommended Python: 3.8+.
-- Dependencies are listed in `requirements.txt`.
-- Check and modify `config.py` for `UPLOAD_DIR`, `RESULT_DIR`, database URI, and other settings.
-- Default storage uses SQLite; change the database URI in `config.py` to use another RDBMS if needed.
+```bash
+cd frontend
+npm run build
+```
 
-**Running (notes)**
-- Launch: `python app.py`. By default the app binds to `0.0.0.0:5000` with `debug=True` (development mode).
-- On first run the app will create database tables (`db.create_all()` is executed on startup).
-- Upload via the web UI (`/upload`) or call the API.
+Build artifacts are written to `backend/static/spa` and served by the backend.
 
-**Important API Endpoints (summary)**
-- `POST /api/detect` — upload an image and run detection.
-  - Accepts `multipart/form-data` with fields like `image` or `file` (file), and optional `latitude` and `longitude`.
-  - Returns detection list, annotated image path and task metadata. Implementation: `api/detect_api.py`.
-- `GET /api/stats/summary` — returns locations, pie chart data, line trend and robot list. Implementation: `api/stats_api.py`.
-- Robot endpoints under `/api/robot/*`: heartbeat (`/api/robot/heartbeat`), register (`/api/robot/register`), control (`/api/robot/control`), navigate (`/api/robot/navigate`), list (`/api/robot/list`), etc. Implementation: `api/robot_api.py`.
+## Configuration
 
-**Inference (YOLO)**
-- Detector: `inference/yolo_detector.py` uses `ultralytics.YOLO` if available.
-- Model weights: `best.pt` at repository root (if present). The detector will attempt to load the provided model path.
-- Output: detection entries include `label`, `confidence`, and `bbox`. Annotated images can be saved to the configured results directory.
+Backend config precedence:
+1. Environment variables
+2. `backend/runtime_config.yaml`
+3. Defaults in `backend/config.py`
 
-**Database Schema (core tables)**
-- `DetectTask` — records an upload/detection task (source/result path, status, coordinates, created_at, etc.).
-- `DetectItem` — per-image detection items (label, confidence, bbox, area, handle_state, etc.).
-- `Robot` — robot records and runtime status (device_id, location, battery, last_heartbeat, next_command, etc.).
-  See `database/models.py` for full definitions.
+Common settings:
+- `SQLALCHEMY_DATABASE_URI` / `DATABASE_URL`
+- `YOLO_MODEL_PATH`
+- `YOLO_CONF_THRESHOLD`
+- `MAX_CONTENT_LENGTH`
+- `TRAIN_MAX_CONTENT_LENGTH`
+- `CAPTCHA_ENABLED`
 
-**Front-end**
-- Page routes in `web/pages.py`: `/`, `/upload`, `/stats`, `/result`, `/robot`.
-- Templates are in `templates/`, static assets in `static/` (JS under `static/js/`, CSS under `static/css/`).
+Important:
+- The default `runtime_config.yaml` sample uses MySQL (`trashdet`).
+- If that DB does not exist locally, switch to SQLite URI or remove MySQL entries.
 
-**Clean_Robot Integration**
-- The `Clean_Robot/` directory contains example firmware and integration notes (`README_Integration.md`).
-- Robots should POST heartbeat or status updates to `/api/robot/heartbeat` or `/api/robot/status_update`. The server returns `command` and `target` fields which robots should act upon.
+## Core APIs
 
-**Testing**
-- Basic test examples exist in the `test/` directory. Extend or run those tests as needed.
+Detection:
+- `GET /api/detect/dependencies` dependency health for detection runtime
+- `POST /api/detect` image detection
+- `POST /api/detect/video` async video detection
+- `GET /api/detect/video/status/<task_id>` video task status
+- `POST /api/detect/ingest` ingest externally produced detection results
 
-**Troubleshooting & Notes**
-- If model loading fails, ensure `ultralytics` is installed or place a compatible `best.pt` file in the project root.
-- External address reverse-geocoding uses OpenStreetMap Nominatim; if requests are rate-limited or fail, the server will fallback to returning coordinates as a textual description.
+Statistics:
+- `GET /api/stats/summary`
+- `GET /api/stats/hotspots`
 
-**Contributing & License**
-- Contributions via issues and pull requests are welcome. Please keep code style consistent with existing project formatting.
-- This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+Robot:
+- `POST /api/robot/register`
+- `POST /api/robot/heartbeat`
+- `POST /api/robot/status_update`
+- `POST /api/robot/control`
+- `POST /api/robot/navigate`
+- `GET /api/robot/list`
 
-**Acknowledgements / Contact**
-- Maintainer: see repository history for authorship.
-- References: ultralytics/YOLO, OpenStreetMap Nominatim.
+Training:
+- `GET /api/train/config`
+- `POST /api/train/start`
+- `GET /api/train/status/<job_id>`
+- `GET /api/train/status`
+
+Web session and data APIs (excerpt):
+- `GET /api/web/session`
+- `POST /api/web/login`
+- `POST /api/web/register`
+- `POST /api/web/logout`
+- `GET /api/web/tasks`
+
+## Model and Training Workflow
+
+- Inference implementation is in `backend/inference/yolo_detector.py`.
+- Training is triggered asynchronously by `POST /api/train/start`.
+- Dataset upload requires ZIP; custom `.pt` weight upload is supported.
+- Job result includes output folder and a best-weight hint path.
+
+## Robot Integration and Simulation
+
+- Robot firmware examples are under `backend/Clean_Robot/`.
+- Desktop simulation scripts are under `Simulator/`.
+- Backend robot APIs provide heartbeat, status sync, navigation, and control channels.
+
+## Testing
+
+Run full backend unit tests:
+
+```bash
+cd backend
+python -m unittest discover -s test -p "test_*.py"
+```
+
+If your environment is missing optional dependencies, run baseline tests first:
+
+```bash
+cd backend
+python -m unittest -q test.test_config test.test_ml_algorithm
+```
+
+## Troubleshooting
+
+- Detection API reports missing dependencies
+  - Call `GET /api/detect/dependencies` for missing packages and install hints.
+- Startup fails with unknown MySQL database
+  - Check `backend/runtime_config.yaml` database block; switch to a valid DB or SQLite.
+- Training upload rejected with HTTP 413
+  - Increase `TRAIN_MAX_CONTENT_LENGTH` and ensure `MAX_CONTENT_LENGTH >= TRAIN_MAX_CONTENT_LENGTH`.
+- Frontend style/resource mismatch
+  - Use built artifacts from `frontend` and serve from `backend/static/spa`.
+
+## License
+
+This project is licensed under MIT. See `LICENSE` for details.

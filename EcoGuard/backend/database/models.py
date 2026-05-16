@@ -11,6 +11,7 @@ class User(db.Model, UserMixin):
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     security_code = db.Column(db.String(255), nullable=False)
+    organization = db.Column(db.String(120), nullable=True)
     role = db.Column(db.String(20), default='user')
 
     if TYPE_CHECKING:
@@ -20,6 +21,7 @@ class User(db.Model, UserMixin):
             username: str,
             password_hash: str = '',
             security_code: str = '',
+            organization: str | None = None,
             role: str = 'user',
             **kwargs: Any,
         ) -> None: ...
@@ -60,6 +62,7 @@ class DetectTask(db.Model):
     location = db.Column(db.String(100), nullable=True)
     status = db.Column(db.String(20), default='PENDING')
     error_msg = db.Column(db.Text, nullable=True)
+    user_id = db.Column(db.Integer, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.now, index=True)
     latitude = db.Column(db.Float, nullable=True, index=True)
     longitude = db.Column(db.Float, nullable=True)
@@ -77,6 +80,7 @@ class DetectTask(db.Model):
             location: str | None = None,
             status: str = 'PENDING',
             error_msg: str | None = None,
+            user_id: int | None = None,
             created_at: datetime | None = None,
             latitude: float | None = None,
             longitude: float | None = None,
@@ -93,6 +97,7 @@ class DetectTask(db.Model):
             'location': self.location,
             'status': self.status,
             'error_msg': self.error_msg,
+            'user_id': self.user_id,
             'latitude': self.latitude,
             'longitude': self.longitude,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -154,6 +159,7 @@ class Robot(db.Model):
     name = db.Column(db.String(100))
     status = db.Column(db.String(20), default='OFFLINE')
     ip_address = db.Column(db.String(50))
+    owner_user_id = db.Column(db.Integer, nullable=True, index=True)
 
     current_lat = db.Column(db.Float, nullable=True)
     current_lng = db.Column(db.Float, nullable=True)
@@ -176,6 +182,7 @@ class Robot(db.Model):
             name: str | None = None,
             status: str = 'OFFLINE',
             ip_address: str | None = None,
+            owner_user_id: int | None = None,
             current_lat: float | None = None,
             current_lng: float | None = None,
             target_lat: float | None = None,

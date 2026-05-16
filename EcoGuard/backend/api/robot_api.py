@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, session
 
 from api.robot_helpers import (
     COMMAND_ALIASES,
@@ -26,10 +26,34 @@ from api.robot_route_services import (
     validate_register_fields,
 )
 from database.db import db
-from database.models import Robot
+from database.models import Robot, User
 
 
 robot_bp = Blueprint('robot_bp', __name__)
+
+
+def _get_session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return db.session.get(User, user_id)
+
+
+def _is_admin_user(user):
+    return bool(user and getattr(user, 'role', '') == 'admin')
+
+
+def _require_ui_user():
+    user = _get_session_user()
+    if not user:
+        return None, _json_error('请先登录', 401)
+    return user, None
+
+
+def _can_access_robot(user, robot):
+    if _is_admin_user(user):
+        return True
+    return getattr(robot, 'owner_user_id', None) == getattr(user, 'id', None)
 
 
 @robot_bp.route('/heartbeat', methods=['POST'])
@@ -87,6 +111,11 @@ def sync_status():
 
 @robot_bp.route('/register', methods=['POST'])
 def create_robot():
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+    assert current_user is not None
+
     payload, payload_error = _json_from_request()
     if payload_error is not None:
         return payload_error
@@ -100,7 +129,7 @@ def create_robot():
     if _get_robot_by_device_id(device_id):
         return jsonify({'ok': False, 'msg': '该设备 ID 已存在'}), 409
 
-    robot = Robot(device_id=device_id, name=name, status='OFFLINE')
+    robot = Robot(device_id=device_id, name=name, status='OFFLINE', owner_user_id=current_user.id)
     db.session.add(robot)
     commit_error = _commit_or_error('创建设备')
     if commit_error:
@@ -110,9 +139,15 @@ def create_robot():
 
 @robot_bp.route('/delete/<int:robot_id>', methods=['POST'])
 def remove_robot(robot_id):
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+
     robot = _get_robot_or_none(robot_id)
     if not robot:
         return _json_error('未找到设备', 404)
+    if not _can_access_robot(current_user, robot):
+        return _json_error('无权限访问该机器人', 403)
 
     db.session.delete(robot)
     commit_error = _commit_or_error('删除设备')
@@ -123,6 +158,10 @@ def remove_robot(robot_id):
 
 @robot_bp.route('/navigate', methods=['POST'])
 def send_navigation():
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+
     payload, payload_error = _json_from_request()
     if payload_error is not None:
         return payload_error
@@ -135,6 +174,8 @@ def send_navigation():
     robot = _get_robot_or_none(robot_id)
     if not robot:
         return _json_error('机器人不存在', 404)
+    if not _can_access_robot(current_user, robot):
+        return _json_error('无权限访问该机器人', 403)
 
     apply_navigation_target(robot, latitude, longitude)
     commit_error = _commit_or_error('下发导航')
@@ -151,6 +192,10 @@ def list_control_commands():
 
 @robot_bp.route('/control', methods=['POST'])
 def send_control():
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+
     payload, payload_error = _json_from_request()
     if payload_error is not None:
         return payload_error
@@ -159,6 +204,8 @@ def send_control():
     robot, _, _ = _find_robot_by_id_or_error(payload)
     if not robot:
         return _json_error('机器人不存在', 404)
+    if not _can_access_robot(current_user, robot):
+        return _json_error('无权限访问该机器人', 403)
 
     command = _normalize_command(payload.get('command'))
     if not command:
@@ -175,7 +222,16 @@ def send_control():
 
 @robot_bp.route('/list', methods=['GET'])
 def fetch_robots():
-    robots = Robot.query.all()
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+    assert current_user is not None
+
+    if _is_admin_user(current_user):
+        robots = Robot.query.all()
+    else:
+        robots = Robot.query.filter_by(owner_user_id=current_user.id).all()
+
     robot_items, pending_updates = build_robot_list_snapshot(
         robots=robots,
         resolve_status=resolve_robot_status,
@@ -193,6 +249,10 @@ def fetch_robots():
 
 @robot_bp.route('/update', methods=['POST'])
 def save_robot_changes():
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+
     payload, payload_error = _json_from_request()
     if payload_error is not None:
         return payload_error
@@ -202,6 +262,8 @@ def save_robot_changes():
     robot = _get_robot_or_none(robot_id)
     if not robot:
         return jsonify({'ok': False, 'msg': '机器人不存在'}), 404
+    if not _can_access_robot(current_user, robot):
+        return _json_error('无权限访问该机器人', 403)
 
     try:
         apply_robot_update_payload(
