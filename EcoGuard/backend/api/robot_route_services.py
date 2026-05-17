@@ -228,14 +228,11 @@ def advance_running_patrol(robot, task, parse_json_text_func, apply_navigation_t
                 task.status = 'DONE'
                 return
             waypoint = waypoints[index]
-
-    target_lat = getattr(robot, 'target_lat', None)
-    target_lng = getattr(robot, 'target_lng', None)
-    has_same_target = False
-    if target_lat is not None and target_lng is not None:
-        has_same_target = _distance_meters(float(target_lat), float(target_lng), waypoint['lat'], waypoint['lng']) <= 1.0
-
-    if not has_same_target:
+        # 每次到达都强制下发新目标
         apply_navigation_target_func(robot, waypoint['lat'], waypoint['lng'])
-    elif not getattr(robot, 'next_command', None):
         robot.next_command = 'NAVIGATE'
+        return
+
+    # 未到达时也强制下发目标，确保同步
+    apply_navigation_target_func(robot, waypoint['lat'], waypoint['lng'])
+    robot.next_command = 'NAVIGATE'

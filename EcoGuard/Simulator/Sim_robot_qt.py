@@ -161,7 +161,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.robot_timer.timeout.connect(self._robot_tick)
 
         self._build_ui(server=server, device_id=device_id)
-        self._apply_styles()
+        self._apply_styles()  # 必须在 _build_ui 之后，确保 image_preview 已初始化
         self._update_robot_dashboard()
         self.robot_sync_btn.click()
 
@@ -177,11 +177,15 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         config_box = QGroupBox("连接参数 / 位置信息")
         cfg_grid = QGridLayout(config_box)
 
+
         self.server_edit = QLineEdit(server)
         self.server_edit.setPlaceholderText("后端地址，例如 http://127.0.0.1:5000")
 
         self.device_edit = QLineEdit(device_id)
         self.device_edit.setPlaceholderText("设备 ID")
+
+        self.register_device_btn = QPushButton("注册设备")
+        self.register_device_btn.clicked.connect(self._register_device_clicked)
 
         self.location_edit = QLineEdit("模拟道路")
         self.location_edit.setPlaceholderText("地点描述（可选）")
@@ -196,10 +200,12 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.lng_spin.setRange(-180.0, 180.0)
         self.lng_spin.setValue(114.300000)
 
+
         cfg_grid.addWidget(QLabel("服务器"), 0, 0)
         cfg_grid.addWidget(self.server_edit, 0, 1)
         cfg_grid.addWidget(QLabel("设备 ID"), 0, 2)
         cfg_grid.addWidget(self.device_edit, 0, 3)
+        cfg_grid.addWidget(self.register_device_btn, 0, 4)
 
         cfg_grid.addWidget(QLabel("纬度"), 1, 0)
         cfg_grid.addWidget(self.lat_spin, 1, 1)
@@ -233,9 +239,11 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.heartbeat_interval_spin.setValue(0.5)
         self.heartbeat_interval_spin.valueChanged.connect(self._on_heartbeat_interval_changed)
 
+
         self.robot_sync_btn = QPushButton("开启机器人同步")
         self.robot_sync_btn.setCheckable(True)
         self.robot_sync_btn.clicked.connect(self.toggle_robot_sync)
+        # 启动时不自动注册，需手动点击注册按钮
 
         self.robot_pos_label = QLabel("位置: (30.500000, 114.300000)")
         self.robot_heading_label = QLabel("朝向: 0.0°")
@@ -381,6 +389,36 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.statusBar().showMessage("就绪")
 
         self._log("Qt 控制台已启动")
+
+    def _register_device_clicked(self):
+        base = self._api_base()
+        device_id = self.device_edit.text().strip()
+        if not base.startswith("http"):
+            self._warn("服务器地址格式无效")
+            return
+        if not device_id:
+            self._warn("请输入设备ID")
+            return
+
+        url = f"{base}/api/robot/register_device"
+        payload = {"device_id": device_id, "name": "SimRobotQt"}
+
+        try:
+            resp = requests.post(url, json=payload, timeout=5)
+            body = resp.json() if resp.content else {}
+            if body.get("ok") or body.get("robot_id"):
+                self._log(f"注册成功，robot_id={body.get('robot_id')}")
+                robot_id_raw = body.get("robot_id")
+                try:
+                    self.robot_db_id = int(robot_id_raw) if robot_id_raw is not None else None
+                except (TypeError, ValueError):
+                    self.robot_db_id = None
+            else:
+                self._warn(f"注册失败: {body.get('msg') or '未知错误'}")
+        except requests.RequestException as error:
+            self._warn(f"注册请求失败: {error}")
+        except ValueError as error:
+            self._warn(f"注册响应解析失败: {error}")
 
     def _apply_styles(self):
         self.setStyleSheet(
@@ -1265,32 +1303,29 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             if route_points and self._apply_route_navigation(route_points):
                 return
 
+            # 回退到单点导航
             tlat = target.get("lat")
             tlng = target.get("lng")
             if tlat is not None and tlng is not None:
                 nav_lat = float(tlat)
                 nav_lng = float(tlng)
-                current_pos = (self.lat_spin.value(), self.lng_spin.value())
-                if self.robot_last_arrived_target is not None and self._same_nav_point(
-                    (nav_lat, nav_lng),
-                    self.robot_last_arrived_target,
-                    tolerance=max(NAV_ARRIVE_THRESHOLD * 1.2, 1e-9),
-                ):
-                    if self._same_nav_point(current_pos, self.robot_last_arrived_target, tolerance=NAV_ARRIVE_THRESHOLD):
-                        self.robot_paused = False
-                        self.robot_moving = None
-                        return
-                if self.robot_nav_queue and self.robot_nav_target is not None:
-                    if self._same_nav_point((nav_lat, nav_lng), self.robot_nav_target, tolerance=1e-9):
-                        self.robot_paused = False
-                        self.robot_moving = "NAVIGATE"
-                        return
-                    self.robot_nav_queue = []
+                next_point = (nav_lat, nav_lng)
 
-                # If server actively sends NAVIGATE, execute immediately even when paused.
-                self.robot_paused = False
-                self.robot_nav_target = (nav_lat, nav_lng)
+                # 如果当前目标和服务端目标一致，仅确保继续导航，不打断队列
+                if self.robot_nav_target is not None and self._same_nav_point(
+                    self.robot_nav_target,
+                    next_point,
+                    tolerance=max(NAV_ARRIVE_THRESHOLD * 0.5, 1e-9),
+                ):
+                    self.robot_moving = "NAVIGATE"
+                    self.robot_paused = False
+                    return
+
+                # 单点导航时才替换当前目标并清空队列
+                self.robot_nav_queue = []
+                self.robot_nav_target = next_point
                 self.robot_moving = "NAVIGATE"
+                self.robot_paused = False
             return
         self._apply_local_command(str(command))
 

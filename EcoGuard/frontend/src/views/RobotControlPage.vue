@@ -34,8 +34,6 @@ function buildRobotPopup(currentRobot) {
 
 function applyRobot(currentRobot) {
   robot.value = currentRobot
-  if (currentRobot?.target?.lat != null && !navLat.value) navLat.value = currentRobot.target.lat
-  if (currentRobot?.target?.lng != null && !navLng.value) navLng.value = currentRobot.target.lng
   if (currentRobot?.lat != null && currentRobot?.lng != null && map) {
     if (robotMarker) {
       robotMarker.setLatLng([currentRobot.lat, currentRobot.lng])
@@ -123,6 +121,8 @@ function onResize() {
 watch(() => route.params.id, loadRobot)
 
 onMounted(() => {
+  navLat.value = ''
+  navLng.value = ''
   map = L.map('robotControlMap').setView([30, 110], 6)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map)
   loadRobot()

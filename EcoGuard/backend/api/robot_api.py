@@ -285,6 +285,23 @@ def _get_running_patrol_task(robot_id):
     return RobotPatrolTask.query.filter_by(robot_id=robot_id, status='RUNNING').order_by(RobotPatrolTask.created_at.asc()).first()
 
 
+def _build_running_waypoints_payload(task):
+    if not task or getattr(task, 'status', None) != 'RUNNING':
+        return []
+
+    waypoints = extract_patrol_waypoints(task, parse_json_text)
+    if not waypoints:
+        return []
+
+    index = int(getattr(task, 'current_waypoint_index', 0) or 0)
+    if index < 0:
+        index = 0
+    if index >= len(waypoints):
+        return []
+
+    return waypoints[index:]
+
+
 def _sync_running_patrol_for_robot(robot):
     running_task = _get_running_patrol_task(robot.id)
     if not running_task:
@@ -368,6 +385,8 @@ def sync_heartbeat():
     if commit_error:
         return commit_error
 
+    remaining_waypoints = _build_running_waypoints_payload(running_task)
+
     return _json_ok({
         'robot_id': robot.id,
         'command': command,
@@ -375,6 +394,7 @@ def sync_heartbeat():
             'lat': robot.target_lat,
             'lng': robot.target_lng,
         },
+        'waypoints': remaining_waypoints,
     })
 
 
@@ -417,10 +437,13 @@ def sync_status():
     if commit_error:
         return commit_error
 
+    remaining_waypoints = _build_running_waypoints_payload(running_task)
+
     return _json_ok({
         'robot_id': robot.id,
         'command': command,
         'target': {'lat': robot.target_lat, 'lng': robot.target_lng},
+        'waypoints': remaining_waypoints,
     })
 
 
