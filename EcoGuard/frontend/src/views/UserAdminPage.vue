@@ -7,6 +7,9 @@ const loading = ref(false)
 const submitting = ref(false)
 const updatingUserId = ref(null)
 const deletingUserId = ref(null)
+const editingUserId = ref(null)
+const savingProfileUserId = ref(null)
+const editingRowName = ref('')
 const rows = ref([])
 const loadError = ref('')
 const canManage = ref(false)
@@ -23,6 +26,13 @@ const createForm = reactive({
   confirm_password: '',
   security_code: '',
   role: 'user',
+})
+
+const editForm = reactive({
+  username: '',
+  organization: '',
+  password: '',
+  confirm_password: '',
 })
 
 const authUser = computed(() => sessionState.user)
@@ -54,6 +64,7 @@ async function loadUsers() {
     canManage.value = Boolean(payload.can_manage)
     rows.value = [...(payload.users || [])].sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
     summary.value = payload.summary || { total: 0, admin_count: 0, user_count: 0 }
+    editingUserId.value = null
   } catch (error) {
     rows.value = []
     canManage.value = false
@@ -109,6 +120,62 @@ async function toggleRole(row) {
     pushFlash(error.message || '更新用户角色失败', 'error')
   } finally {
     updatingUserId.value = null
+  }
+}
+
+function startEdit(row) {
+  if (!canManage.value) {
+    pushFlash('当前账号只有查看权限，无法编辑用户信息', 'warning')
+    return
+  }
+  if (row.is_current_user) {
+    pushFlash('请在个人中心修改当前登录用户信息', 'warning')
+    return
+  }
+
+  editingUserId.value = row.id
+  editingRowName.value = row.username || ''
+  editForm.username = row.username || ''
+  editForm.organization = row.organization || ''
+  editForm.password = ''
+  editForm.confirm_password = ''
+}
+
+function cancelEdit() {
+  editingUserId.value = null
+  editingRowName.value = ''
+  editForm.username = ''
+  editForm.organization = ''
+  editForm.password = ''
+  editForm.confirm_password = ''
+}
+
+async function saveUserProfile() {
+  if (!canManage.value) {
+    pushFlash('当前账号只有查看权限，无法编辑用户信息', 'warning')
+    return
+  }
+
+  const targetUserId = editingUserId.value
+  if (!targetUserId) {
+    return
+  }
+
+  savingProfileUserId.value = targetUserId
+  try {
+    await postJson(`/api/web/admin/users/${targetUserId}/update`, {
+      username: editForm.username,
+      organization: editForm.organization,
+      password: editForm.password,
+      confirm_password: editForm.confirm_password,
+    })
+    pushFlash('用户信息已更新', 'success')
+    cancelEdit()
+    await loadUsers()
+  } catch (error) {
+    pushFlash(error.message || '更新用户信息失败', 'error')
+  } finally {
+    savingProfileUserId.value = null
   }
 }
 
@@ -212,7 +279,7 @@ onMounted(loadUsers)
         <div v-else class="user-create card-surface" aria-label="只读提示">
           <h3 class="section-title section-title-sm">当前为只读模式</h3>
           <p class="user-page-subtitle" style="margin-top: 0;">
-            你正在查看后端 user 表数据，但当前账号不是管理员，因此不能新增、改角色或删除用户。
+            你正在查看后端 user 表数据，但当前账号不是管理员，因此不能新增、编辑、改角色或删除用户。
           </p>
         </div>
 
@@ -257,7 +324,16 @@ onMounted(loadUsers)
                     v-if="canManage"
                     type="button"
                     class="btn-detail"
-                    :disabled="updatingUserId === row.id || (row.is_current_user && row.role === 'admin')"
+                    :disabled="row.is_current_user || editingUserId !== null"
+                    @click="startEdit(row)"
+                  >
+                    编辑信息
+                  </button>
+                  <button
+                    v-if="canManage"
+                    type="button"
+                    class="btn-detail"
+                    :disabled="updatingUserId === row.id || editingUserId !== null || (row.is_current_user && row.role === 'admin')"
                     @click="toggleRole(row)"
                   >
                     {{ updatingUserId === row.id ? '更新中...' : (row.role === 'admin' ? '降为普通用户' : '设为管理员') }}
@@ -266,7 +342,7 @@ onMounted(loadUsers)
                     v-if="canManage"
                     type="button"
                     class="btn-delete"
-                    :disabled="deletingUserId === row.id || row.is_current_user"
+                    :disabled="deletingUserId === row.id || editingUserId !== null || row.is_current_user"
                     @click="removeUser(row)"
                   >
                     {{ deletingUserId === row.id ? '删除中...' : '删除' }}
@@ -277,6 +353,44 @@ onMounted(loadUsers)
           </div>
         </div>
       </section>
+
+      <transition name="edit-modal-fade">
+        <div v-if="editingUserId !== null" class="edit-modal-mask" @click.self="cancelEdit">
+          <section class="edit-modal-card card-surface" aria-label="编辑用户信息卡片">
+            <h3 class="section-title section-title-sm">编辑成员信息</h3>
+            <p class="user-page-subtitle" style="margin-top: 0;">
+              用户 ID #{{ editingUserId }} · 当前用户名：{{ editingRowName || '-' }}
+            </p>
+            <form class="edit-form-grid" @submit.prevent="saveUserProfile">
+              <label class="field-block">
+                <span>用户名</span>
+                <input v-model.trim="editForm.username" maxlength="50" minlength="3" required>
+              </label>
+              <label class="field-block">
+                <span>所属单位</span>
+                <input v-model.trim="editForm.organization" maxlength="120" required placeholder="例如：XX 环卫中心">
+              </label>
+              <label class="field-block">
+                <span>新密码（留空则不修改）</span>
+                <input v-model="editForm.password" type="password" minlength="6" placeholder="至少 6 位">
+              </label>
+              <label class="field-block">
+                <span>确认新密码</span>
+                <input v-model="editForm.confirm_password" type="password" minlength="6" placeholder="再次输入新密码">
+              </label>
+              <p class="user-page-subtitle" style="margin-top: -2px;">如不需要重置密码，请保持新密码和确认新密码为空。</p>
+              <div class="edit-actions">
+                <button type="submit" :disabled="savingProfileUserId !== null">
+                  {{ savingProfileUserId !== null ? '保存中...' : '保存修改' }}
+                </button>
+                <button type="button" class="btn-detail" :disabled="savingProfileUserId !== null" @click="cancelEdit">
+                  取消
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -390,6 +504,17 @@ onMounted(loadUsers)
   align-items: end;
 }
 
+.edit-form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .user-list-shell {
   display: grid;
   gap: 8px;
@@ -444,16 +569,34 @@ onMounted(loadUsers)
   min-width: 0;
 }
 
-.user-col-user {
+.edit-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
   display: grid;
-  gap: 4px;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 31, 25, 0.35);
+  backdrop-filter: blur(2px);
 }
 
-.user-col-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
+.edit-modal-card {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(20, 109, 88, 0.26);
+  box-shadow: 0 18px 44px rgba(10, 60, 49, 0.24);
+}
+
+.edit-modal-fade-enter-active,
+.edit-modal-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.edit-modal-fade-enter-from,
+.edit-modal-fade-leave-to {
+  opacity: 0;
 }
 
 .user-item-name {
@@ -478,6 +621,18 @@ onMounted(loadUsers)
 .user-texts {
   display: grid;
   min-width: 0;
+  gap: 4px;
+}
+
+.edit-inline-block {
+  display: grid;
+  gap: 4px;
+}
+
+.edit-input {
+  width: 100%;
+  min-height: 32px;
+  border-radius: 8px;
 }
 
 .user-avatar {

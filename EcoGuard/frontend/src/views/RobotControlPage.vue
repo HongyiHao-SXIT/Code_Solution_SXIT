@@ -62,7 +62,13 @@ async function loadRobot() {
   try {
     const [detailPayload, listPayload] = await Promise.all([
       getJson(`/api/web/robots/${robotId.value}`),
-      getJson('/api/robot/list'),
+      (async () => {
+        try {
+          return await getJson('/api/robot/live/list')
+        } catch (liveError) {
+          return getJson('/api/robot/list')
+        }
+      })(),
     ])
     const baseRobot = detailPayload.robot
     const realtimeRobot = (listPayload.robots || []).find((item) => Number(item.id) === Number(robotId.value))

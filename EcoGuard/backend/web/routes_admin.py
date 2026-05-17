@@ -43,6 +43,33 @@ def _serialize_user_admin_row(user, current_user_id):
     return payload
 
 
+def _validate_admin_user_profile_input(
+    username,
+    organization,
+    password,
+    confirm_password,
+    current_user_id=None,
+):
+    if not username or not organization:
+        return '请完整填写用户信息', 400
+    if len(username) < 3 or len(username) > 50:
+        return '用户名长度需在 3-50 个字符之间', 400
+    if len(organization) > 120:
+        return '所属单位长度不能超过 120 个字符', 400
+
+    if password or confirm_password:
+        if len(password) < 6:
+            return '密码至少 6 位', 400
+        if password != confirm_password:
+            return '两次输入的密码不一致', 400
+
+    existing = _find_user_by_username(username)
+    if existing and existing.id != current_user_id:
+        return '用户名已存在，请更换', 409
+
+    return None, None
+
+
 @web_bp.route('/api/web/admin/users', methods=['GET'])
 @api_login_required
 def list_admin_users_json():
@@ -134,6 +161,46 @@ def update_admin_user_role_json(user_id):
     return jsonify({
         'ok': True,
         'message': '用户角色更新成功',
+        'user': _serialize_user(target_user),
+    })
+
+
+@web_bp.route('/api/web/admin/users/<int:user_id>/update', methods=['POST'])
+@api_login_required
+def update_admin_user_profile_json(user_id):
+    current_user, error_response = _require_admin_user()
+    if error_response:
+        return error_response
+
+    target_user = db.get_or_404(User, user_id)
+    if target_user.id == current_user.id:
+        return jsonify({'ok': False, 'message': '请在个人中心修改当前登录用户信息'}), 400
+
+    payload = request.get_json(silent=True) or {}
+    username = _normalize_secret(payload.get('username'))
+    organization = _normalize_secret(payload.get('organization'))
+    password = _normalize_secret(payload.get('password'))
+    confirm_password = _normalize_secret(payload.get('confirm_password'))
+
+    error_message, status_code = _validate_admin_user_profile_input(
+        username,
+        organization,
+        password,
+        confirm_password,
+        current_user_id=target_user.id,
+    )
+    if error_message:
+        return jsonify({'ok': False, 'message': error_message}), status_code
+
+    target_user.username = username
+    target_user.organization = organization
+    if password:
+        target_user.set_password(password)
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'message': '用户信息更新成功',
         'user': _serialize_user(target_user),
     })
 

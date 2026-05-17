@@ -122,6 +122,73 @@ class AdminUsersApiTestCase(unittest.TestCase):
             assert updated is not None
             self.assertEqual(updated.role, 'admin')
 
+    def test_admin_can_update_other_member_profile(self):
+        self._login('admin_root')
+
+        response = self.client.post(f'/api/web/admin/users/{self.member_id}/update', json={
+            'username': 'member_user_updated',
+            'organization': '测试单位C',
+        })
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertTrue(payload.get('ok'))
+        self.assertEqual(payload.get('user', {}).get('username'), 'member_user_updated')
+        self.assertEqual(payload.get('user', {}).get('organization'), '测试单位C')
+
+        with self.app.app_context():
+            updated = db.session.get(User, self.member_id)
+            self.assertIsNotNone(updated)
+            assert updated is not None
+            self.assertEqual(updated.username, 'member_user_updated')
+            self.assertEqual(updated.organization, '测试单位C')
+
+    def test_admin_can_update_other_member_profile_and_password(self):
+        self._login('admin_root')
+
+        response = self.client.post(f'/api/web/admin/users/{self.member_id}/update', json={
+            'username': 'member_user',
+            'organization': '测试单位C',
+            'password': 'newpass123',
+            'confirm_password': 'newpass123',
+        })
+        self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            updated = db.session.get(User, self.member_id)
+            self.assertIsNotNone(updated)
+            assert updated is not None
+            self.assertTrue(updated.check_password('newpass123'))
+
+    def test_admin_update_profile_rejects_invalid_password_pair(self):
+        self._login('admin_root')
+
+        response = self.client.post(f'/api/web/admin/users/{self.member_id}/update', json={
+            'username': 'member_user',
+            'organization': '测试单位C',
+            'password': '123',
+            'confirm_password': '456',
+        })
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_admin_cannot_update_member_profile(self):
+        self._login('member_user')
+
+        response = self.client.post(f'/api/web/admin/users/{self.admin_root_id}/update', json={
+            'username': 'blocked_admin',
+            'organization': '受限单位',
+        })
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_update_profile_rejects_duplicate_username(self):
+        self._login('admin_root')
+
+        response = self.client.post(f'/api/web/admin/users/{self.member_id}/update', json={
+            'username': 'admin_backup',
+            'organization': '测试单位D',
+        })
+        self.assertEqual(response.status_code, 409)
+
     def test_admin_cannot_delete_self(self):
         self._login('admin_root')
         response = self.client.post(f'/api/web/admin/users/{self.admin_root_id}/delete', json={})

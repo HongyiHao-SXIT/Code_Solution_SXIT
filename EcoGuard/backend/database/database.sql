@@ -68,6 +68,21 @@ CREATE TABLE IF NOT EXISTS `robot` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `robot_patrol_task` (
+    `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `robot_id` INT NOT NULL,
+    `name` VARCHAR(120) NOT NULL,
+    `inspection_area` TEXT NOT NULL,
+    `planned_path` TEXT NULL,
+    `status` VARCHAR(20) NOT NULL DEFAULT 'PLANNED',
+    `current_waypoint_index` INT NOT NULL DEFAULT 0,
+    `created_by_user_id` INT NULL,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_robot_patrol_task_robot`
+        FOREIGN KEY (`robot_id`) REFERENCES `robot`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE INDEX `idx_detect_task_time_geo`
     ON `detect_task` (`created_at`, `latitude`, `longitude`);
 
@@ -82,3 +97,9 @@ CREATE INDEX `idx_detect_item_label`
 
 CREATE INDEX `idx_robot_owner_user_id`
     ON `robot` (`owner_user_id`);
+
+CREATE INDEX `idx_robot_patrol_task_robot_id`
+    ON `robot_patrol_task` (`robot_id`, `status`);
+
+CREATE INDEX `idx_robot_patrol_task_created_by_user_id`
+    ON `robot_patrol_task` (`created_by_user_id`);

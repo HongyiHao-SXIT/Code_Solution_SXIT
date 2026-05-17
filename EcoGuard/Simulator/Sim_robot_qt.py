@@ -119,6 +119,16 @@ SLOW_MULTIPLIER = 0.4
 NAV_STEP_RATIO = 0.08
 NAV_ARRIVE_THRESHOLD = 0.00003
 BATTERY_DRAIN_PER_BEAT = 0.03
+ACTIVE_SYNC_MAX_INTERVAL_MS = 500
+
+
+def _normalize_server_base(raw: str) -> str:
+    base = (raw or "").strip()
+    if not base:
+        return ""
+    if "://" not in base:
+        base = f"http://{base}"
+    return base.rstrip("/")
 
 
 class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
@@ -140,6 +150,8 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.robot_paused = False
         self.robot_moving: Optional[str] = None
         self.robot_nav_target: Optional[tuple[float, float]] = None
+        self.robot_nav_queue: List[tuple[float, float]] = []
+        self.robot_last_arrived_target: Optional[tuple[float, float]] = None
         self.last_server_command = "IDLE"
 
         self.upload_timer = QTimer(self)
@@ -218,7 +230,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.heartbeat_interval_spin = QDoubleSpinBox()
         self.heartbeat_interval_spin.setDecimals(1)
         self.heartbeat_interval_spin.setRange(0.5, 30.0)
-        self.heartbeat_interval_spin.setValue(1.5)
+        self.heartbeat_interval_spin.setValue(0.5)
         self.heartbeat_interval_spin.valueChanged.connect(self._on_heartbeat_interval_changed)
 
         self.robot_sync_btn = QPushButton("开启机器人同步")
@@ -421,7 +433,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
     # -------------------------- Helpers ---------------------------
 
     def _api_base(self) -> str:
-        return self.server_edit.text().strip().rstrip("/")
+        return _normalize_server_base(self.server_edit.text())
 
     def _log(self, message: str):
         self.log_view.append(message)
@@ -461,6 +473,135 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             return ""
         cmd = CMD_ALIASES.get(cleaned.lower(), cleaned.upper())
         return cmd
+
+    def _normalize_nav_point(self, raw_point) -> Optional[tuple[float, float]]:
+        if isinstance(raw_point, dict):
+            lat_raw = raw_point.get("lat")
+            lng_raw = raw_point.get("lng")
+        elif isinstance(raw_point, (list, tuple)) and len(raw_point) >= 2:
+            lat_raw = raw_point[0]
+            lng_raw = raw_point[1]
+        else:
+            return None
+
+        if lat_raw is None or lng_raw is None:
+            return None
+
+        try:
+            lat = float(lat_raw)
+            lng = float(lng_raw)
+        except (TypeError, ValueError):
+            return None
+
+        if not math.isfinite(lat) or not math.isfinite(lng):
+            return None
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            return None
+        return (lat, lng)
+
+    def _append_nav_points(self, raw_points, output: List[tuple[float, float]]):
+        if raw_points is None:
+            return
+
+        point = self._normalize_nav_point(raw_points)
+        if point is not None:
+            output.append(point)
+            return
+
+        if isinstance(raw_points, (list, tuple)):
+            for item in raw_points:
+                nested_point = self._normalize_nav_point(item)
+                if nested_point is not None:
+                    output.append(nested_point)
+                    continue
+                if isinstance(item, dict):
+                    for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
+                        self._append_nav_points(item.get(key), output)
+            return
+
+        if isinstance(raw_points, dict):
+            for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
+                self._append_nav_points(raw_points.get(key), output)
+
+    def _extract_nav_route(self, target, response_body) -> List[tuple[float, float]]:
+        route_points: List[tuple[float, float]] = []
+
+        if isinstance(target, dict):
+            for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
+                self._append_nav_points(target.get(key), route_points)
+        elif isinstance(target, (list, tuple)):
+            self._append_nav_points(target, route_points)
+
+        if isinstance(response_body, dict):
+            for key in (
+                "waypoints",
+                "points",
+                "path",
+                "planned_path",
+                "targets",
+                "target_list",
+                "route",
+                "patrol_path",
+                "navigation_points",
+            ):
+                self._append_nav_points(response_body.get(key), route_points)
+
+        normalized: List[tuple[float, float]] = []
+        for point in route_points:
+            if not normalized:
+                normalized.append(point)
+                continue
+            prev = normalized[-1]
+            if math.hypot(point[0] - prev[0], point[1] - prev[1]) > 1e-12:
+                normalized.append(point)
+
+        return normalized
+
+    def _same_nav_point(self, p1: tuple[float, float], p2: tuple[float, float], tolerance: float = 1e-9) -> bool:
+        return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) <= tolerance
+
+    def _find_route_point_index(self, route: List[tuple[float, float]], point: tuple[float, float]) -> int:
+        for index, candidate in enumerate(route):
+            if self._same_nav_point(candidate, point, tolerance=max(NAV_ARRIVE_THRESHOLD * 1.2, 1e-9)):
+                return index
+        return -1
+
+    def _apply_route_navigation(self, route_points: List[tuple[float, float]]) -> bool:
+        if not route_points:
+            return False
+
+        current_target = self.robot_nav_target
+        if current_target is not None:
+            matched_index = self._find_route_point_index(route_points, current_target)
+            if matched_index > 0:
+                route_points = route_points[matched_index:]
+
+        current_pos = (self.lat_spin.value(), self.lng_spin.value())
+        while route_points and math.hypot(route_points[0][0] - current_pos[0], route_points[0][1] - current_pos[1]) <= NAV_ARRIVE_THRESHOLD:
+            route_points = route_points[1:]
+
+        if not route_points:
+            self.robot_nav_target = None
+            self.robot_nav_queue = []
+            self.robot_moving = None
+            return False
+
+        if self.robot_nav_target is not None and self.robot_nav_queue:
+            current_route = [self.robot_nav_target, *self.robot_nav_queue]
+            if len(current_route) == len(route_points):
+                same_route = all(self._same_nav_point(a, b, tolerance=1e-9) for a, b in zip(current_route, route_points))
+                if same_route:
+                    self.robot_paused = False
+                    self.robot_moving = "NAVIGATE"
+                    return True
+
+        self.robot_paused = False
+        self.robot_last_arrived_target = None
+        self.robot_nav_target = route_points[0]
+        self.robot_nav_queue = route_points[1:]
+        self.robot_moving = "NAVIGATE"
+        self._log(f"收到航点队列，共 {len(route_points)} 点，当前前往 ({route_points[0][0]:.6f}, {route_points[0][1]:.6f})")
+        return True
 
     # ----------------------- Folder / Preview ----------------------
 
@@ -903,14 +1044,28 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
     # ---------------------- Robot Simulation ----------------------
 
     def _on_heartbeat_interval_changed(self):
+        self._refresh_robot_timer_interval()
+
+    def _is_robot_actively_moving(self) -> bool:
+        return bool((self.robot_nav_target is not None or self.robot_moving is not None) and not self.robot_paused)
+
+    def _effective_heartbeat_interval_ms(self) -> int:
+        base_ms = max(100, int(self.heartbeat_interval_spin.value() * 1000))
+        if self._is_robot_actively_moving():
+            # Keep movement/status updates responsive even if user sets a very large heartbeat interval.
+            return min(base_ms, ACTIVE_SYNC_MAX_INTERVAL_MS)
+        return base_ms
+
+    def _refresh_robot_timer_interval(self):
         if self.robot_timer.isActive():
-            self.robot_timer.setInterval(int(self.heartbeat_interval_spin.value() * 1000))
+            self.robot_timer.setInterval(self._effective_heartbeat_interval_ms())
 
     def toggle_robot_sync(self):
         if self.robot_sync_btn.isChecked():
             self.robot_sync_btn.setText("停止机器人同步")
-            self.robot_timer.start(int(self.heartbeat_interval_spin.value() * 1000))
+            self.robot_timer.start(self._effective_heartbeat_interval_ms())
             self._ensure_robot_registered()
+            self._robot_tick()
             self._log("机器人同步已开启，位置将持续变化并上报")
         else:
             self.robot_sync_btn.setText("开启机器人同步")
@@ -918,22 +1073,39 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             self._log("机器人同步已停止")
 
     def _robot_tick(self):
-        self._apply_robot_motion()
-        self._sync_robot_heartbeat()
+        executed_immediately = self._sync_robot_heartbeat()
+        if not executed_immediately:
+            reached_nav_target = self._apply_robot_motion()
+            if reached_nav_target:
+                # Report arrival immediately so backend can switch task state/next command without extra delay.
+                self._sync_robot_heartbeat()
+        self._refresh_robot_timer_interval()
         self._update_robot_dashboard()
 
     def _apply_robot_motion(self):
         lat = self.lat_spin.value()
         lng = self.lng_spin.value()
+        reached_nav_target = False
 
         if not self.robot_paused:
             if self.robot_nav_target is not None:
                 tlat, tlng = self.robot_nav_target
                 dist = math.sqrt((tlat - lat) ** 2 + (tlng - lng) ** 2)
                 if dist <= NAV_ARRIVE_THRESHOLD:
-                    self.robot_nav_target = None
-                    self.robot_moving = None
-                    self._log(f"已到达目标 ({tlat:.6f}, {tlng:.6f})")
+                    if self.robot_nav_queue:
+                        next_lat, next_lng = self.robot_nav_queue.pop(0)
+                        self.robot_nav_target = (next_lat, next_lng)
+                        self.robot_moving = "NAVIGATE"
+                        self.robot_last_arrived_target = (tlat, tlng)
+                        self._log(
+                            f"已到达航点 ({tlat:.6f}, {tlng:.6f})，自动前往下一点 ({next_lat:.6f}, {next_lng:.6f})"
+                        )
+                    else:
+                        self.robot_nav_target = None
+                        self.robot_moving = None
+                        self.robot_last_arrived_target = (tlat, tlng)
+                        self._log(f"已到达目标 ({tlat:.6f}, {tlng:.6f})")
+                    reached_nav_target = True
                 else:
                     target_heading = math.degrees(math.atan2(tlng - lng, tlat - lat)) % 360
                     self.robot_heading = target_heading
@@ -967,8 +1139,18 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                     lng += dlng
                 elif mode == "LEFT":
                     self.robot_heading = (self.robot_heading - turn_step) % 360
+                    # Differential-drive style turning: rotate while drifting slightly forward.
+                    step = move_step * 0.30
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
                 elif mode == "RIGHT":
                     self.robot_heading = (self.robot_heading + turn_step) % 360
+                    # Keep RIGHT behavior symmetrical with LEFT for smoother manual control.
+                    step = move_step * 0.30
+                    dlat, dlng = self._heading_to_delta(self.robot_heading, step)
+                    lat += dlat
+                    lng += dlng
                 elif mode == "SPIN_LEFT":
                     self.robot_heading = (self.robot_heading - turn_step * 1.8) % 360
                 elif mode == "SPIN_RIGHT":
@@ -979,6 +1161,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.lat_spin.setValue(lat)
         self.lng_spin.setValue(lng)
         self.robot_battery = max(0.0, self.robot_battery - BATTERY_DRAIN_PER_BEAT)
+        return reached_nav_target
 
     def _ensure_robot_registered(self):
         base = self._api_base()
@@ -987,10 +1170,24 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         heartbeat = self._post_robot_heartbeat()
         if heartbeat.get("ok"):
+            body = heartbeat.get("body") or {}
+            robot_id = body.get("robot_id")
+            if robot_id is not None:
+                try:
+                    self.robot_db_id = int(robot_id)
+                except (TypeError, ValueError):
+                    pass
+            command = body.get("command") or "IDLE"
+            target = body.get("target") or {}
+            self.last_server_command = str(command)
+            self._handle_server_command(command, target, response_body=body)
+            if command != "IDLE":
+                self._apply_robot_motion()
+                self._update_robot_dashboard()
             return
 
         if heartbeat.get("status") == 403:
-            url = f"{base}/api/robot/register"
+            url = f"{base}/api/robot/register_device"
             payload = {
                 "device_id": self.device_edit.text().strip(),
                 "name": "SimRobotQt",
@@ -999,6 +1196,9 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                 resp = requests.post(url, json=payload, timeout=5)
                 body = resp.json() if resp.content else {}
                 if body.get("ok"):
+                    robot_id = body.get("robot_id")
+                    if robot_id is not None:
+                        self.robot_db_id = int(robot_id)
                     self._log("机器人已自动注册")
                     self._refresh_robot_id()
                 else:
@@ -1033,27 +1233,63 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             self._log(f"心跳响应解析失败: {error}")
             return {"ok": False, "status": None, "body": {}}
 
-    def _sync_robot_heartbeat(self):
+    def _sync_robot_heartbeat(self) -> bool:
         result = self._post_robot_heartbeat()
         if not result["ok"]:
             if result["status"] == 403:
                 self._ensure_robot_registered()
-            return
+            return False
 
         body = result["body"]
+        robot_id = body.get("robot_id")
+        if robot_id is not None:
+            try:
+                self.robot_db_id = int(robot_id)
+            except (TypeError, ValueError):
+                pass
         command = body.get("command") or "IDLE"
         target = body.get("target") or {}
         self.last_server_command = str(command)
-        self._handle_server_command(command, target)
+        self._handle_server_command(command, target, response_body=body)
+        if command != "IDLE":
+            # Execute immediately in the same heartbeat cycle.
+            self._apply_robot_motion()
+            return True
+        return False
 
-    def _handle_server_command(self, command: str, target: dict):
+    def _handle_server_command(self, command: str, target: dict, response_body: Optional[dict] = None):
         if command in (None, "", "IDLE"):
             return
         if command == "NAVIGATE":
+            route_points = self._extract_nav_route(target, response_body)
+            if route_points and self._apply_route_navigation(route_points):
+                return
+
             tlat = target.get("lat")
             tlng = target.get("lng")
             if tlat is not None and tlng is not None:
-                self.robot_nav_target = (float(tlat), float(tlng))
+                nav_lat = float(tlat)
+                nav_lng = float(tlng)
+                current_pos = (self.lat_spin.value(), self.lng_spin.value())
+                if self.robot_last_arrived_target is not None and self._same_nav_point(
+                    (nav_lat, nav_lng),
+                    self.robot_last_arrived_target,
+                    tolerance=max(NAV_ARRIVE_THRESHOLD * 1.2, 1e-9),
+                ):
+                    if self._same_nav_point(current_pos, self.robot_last_arrived_target, tolerance=NAV_ARRIVE_THRESHOLD):
+                        self.robot_paused = False
+                        self.robot_moving = None
+                        return
+                if self.robot_nav_queue and self.robot_nav_target is not None:
+                    if self._same_nav_point((nav_lat, nav_lng), self.robot_nav_target, tolerance=1e-9):
+                        self.robot_paused = False
+                        self.robot_moving = "NAVIGATE"
+                        return
+                    self.robot_nav_queue = []
+
+                # If server actively sends NAVIGATE, execute immediately even when paused.
+                self.robot_paused = False
+                self.robot_nav_target = (nav_lat, nav_lng)
                 self.robot_moving = "NAVIGATE"
             return
         self._apply_local_command(str(command))
@@ -1066,8 +1302,13 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         if cmd in {"STOP", "HOLD_POSITION"}:
             self.robot_moving = None
             self.robot_nav_target = None
+            self.robot_nav_queue = []
+            self.robot_last_arrived_target = None
         elif cmd in {"FORWARD", "BACK", "SLOW_FORWARD", "FAST_FORWARD", "LEFT", "RIGHT", "SPIN_LEFT", "SPIN_RIGHT"}:
+            self.robot_paused = False
             self.robot_nav_target = None
+            self.robot_nav_queue = []
+            self.robot_last_arrived_target = None
             self.robot_moving = cmd
         elif cmd == "PAUSE":
             self.robot_paused = True
@@ -1075,17 +1316,42 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             self.robot_paused = False
         elif cmd == "CANCEL_NAVIGATION":
             self.robot_nav_target = None
+            self.robot_nav_queue = []
+            self.robot_last_arrived_target = None
             self.robot_moving = None
         elif cmd == "RESET":
             self.robot_heading = 0.0
             self.robot_moving = None
             self.robot_nav_target = None
+            self.robot_nav_queue = []
+            self.robot_last_arrived_target = None
             self.robot_paused = False
         elif cmd == "RETURN_HOME":
+            self.robot_paused = False
             self.robot_nav_target = (30.500000, 114.300000)
+            self.robot_nav_queue = []
+            self.robot_last_arrived_target = None
             self.robot_moving = "NAVIGATE"
         elif cmd in {"PICK_TRASH", "DOCK"}:
             pass
+
+    def _apply_immediate_motion_feedback(self, command: str):
+        move_commands = {
+            "FORWARD",
+            "BACK",
+            "SLOW_FORWARD",
+            "FAST_FORWARD",
+            "LEFT",
+            "RIGHT",
+            "SPIN_LEFT",
+            "SPIN_RIGHT",
+            "RETURN_HOME",
+        }
+        if command in move_commands:
+            self._apply_robot_motion()
+            return
+        if command == "RESUME" and (self.robot_moving or self.robot_nav_target is not None):
+            self._apply_robot_motion()
 
     def _refresh_robot_id(self):
         base = self._api_base()
@@ -1109,16 +1375,13 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         if not base.startswith("http"):
             return False, "服务器地址格式无效"
 
-        if self.robot_db_id is None:
-            self._refresh_robot_id()
-        if self.robot_db_id is None:
-            return False, "未获取到机器人 ID（请先确保机器人已注册并心跳成功）"
-
         url = f"{base}/api/robot/control"
         payload = {
-            "id": self.robot_db_id,
             "command": command,
+            "device_id": self.device_edit.text().strip(),
         }
+        if self.robot_db_id is not None:
+            payload["id"] = self.robot_db_id
 
         try:
             resp = requests.post(url, json=payload, timeout=5)
@@ -1138,11 +1401,17 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             return
 
         self._apply_local_command(cmd)
+        self._apply_immediate_motion_feedback(cmd)
         ok, message = self._post_control_command(cmd)
         if ok:
             self._log(f"控制指令已发送: {cmd}")
         else:
             self._log(f"控制指令发送失败({cmd}): {message}，已本地执行模拟")
+
+        if not self.robot_timer.isActive() and cmd in {
+            "FORWARD", "BACK", "LEFT", "RIGHT", "SLOW_FORWARD", "FAST_FORWARD", "SPIN_LEFT", "SPIN_RIGHT"
+        }:
+            self._log("提示: 机器人同步未开启，方向键每次仅移动一步；开启机器人同步可持续移动")
 
         self._update_robot_dashboard()
 

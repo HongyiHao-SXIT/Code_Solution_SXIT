@@ -71,6 +71,11 @@ def ensure_ownership_schema_impl(app, db_obj, logger=None):
             ddl_statements.append('ALTER TABLE detect_task ADD COLUMN user_id INTEGER')
         if 'owner_user_id' not in table_column_names['robot']:
             ddl_statements.append('ALTER TABLE robot ADD COLUMN owner_user_id INTEGER')
+        table_names = set(inspector.get_table_names())
+        if 'robot_patrol_task' in table_names:
+            robot_patrol_columns = {column['name'] for column in inspector.get_columns('robot_patrol_task')}
+            if 'current_waypoint_index' not in robot_patrol_columns:
+                ddl_statements.append('ALTER TABLE robot_patrol_task ADD COLUMN current_waypoint_index INTEGER NOT NULL DEFAULT 0')
         if 'idx_detect_task_user_id' not in table_index_names['detect_task']:
             ddl_statements.append('CREATE INDEX idx_detect_task_user_id ON detect_task (user_id)')
         if 'idx_robot_owner_user_id' not in table_index_names['robot']:

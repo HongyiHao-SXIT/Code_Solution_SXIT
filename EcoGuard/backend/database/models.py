@@ -151,6 +151,36 @@ class OpsLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
 
 
+class RobotPatrolTask(db.Model):
+    __tablename__ = 'robot_patrol_task'
+
+    id = db.Column(db.Integer, primary_key=True)
+    robot_id = db.Column(db.Integer, db.ForeignKey('robot.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    inspection_area = db.Column(db.Text, nullable=False)
+    planned_path = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default='PLANNED', nullable=False)
+    current_waypoint_index = db.Column(db.Integer, default=0, nullable=False)
+    created_by_user_id = db.Column(db.Integer, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+    if TYPE_CHECKING:
+        def __init__(
+            self,
+            *,
+            robot_id: int,
+            name: str,
+            inspection_area: str,
+            planned_path: str | None = None,
+            status: str = 'PLANNED',
+            current_waypoint_index: int = 0,
+            created_by_user_id: int | None = None,
+            created_at: datetime | None = None,
+            **kwargs: Any,
+        ) -> None: ...
+
+
 class Robot(db.Model):
     __tablename__ = 'robot'
 
@@ -173,6 +203,7 @@ class Robot(db.Model):
     battery = db.Column(db.Integer, default=100)
     config = db.Column(db.JSON, default=lambda: {"confidence_threshold": 0.5, "active": True})
     created_at = db.Column(db.DateTime, default=datetime.now)
+    patrol_tasks = db.relationship('RobotPatrolTask', backref='robot', lazy=True, cascade='all, delete-orphan')
 
     if TYPE_CHECKING:
         def __init__(

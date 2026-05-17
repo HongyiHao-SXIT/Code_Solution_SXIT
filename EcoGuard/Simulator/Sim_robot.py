@@ -1,16 +1,3 @@
-"""
-EcoGuard 机器人交互式终端模拟器
-
-后台线程自动发送心跳、接收服务器指令并更新位置；
-主线程提供交互式命令行，可实时向服务器下发控制指令、导航目标等。
-
-用法示例:
-    python Sim_robot.py --id SIM_001 --lat 30.5 --lng 114.3
-    python Sim_robot.py --id SIM_001 --server http://192.168.1.100:5000
-
-启动后输入 help 查看可用指令。
-"""
-
 import argparse
 import math
 import os
@@ -121,6 +108,15 @@ def _post_json(url, payload, timeout=5):
     return resp, _parse_json(resp)
 
 
+def _normalize_server_url(raw):
+    server = (raw or '').strip()
+    if not server:
+        return 'http://127.0.0.1:5000'
+    if '://' not in server:
+        server = f'http://{server}'
+    return server.rstrip('/')
+
+
 def _clamp_lat(v):
     return max(-90.0, min(90.0, v))
 
@@ -156,7 +152,7 @@ def _warn(msg):
 
 class RobotSimulator:
     def __init__(self, server, device_id, name, lat, lng, battery, interval):
-        self.server = server.rstrip('/')
+        self.server = _normalize_server_url(server)
         self.device_id = device_id
         self.name = name
         self.interval = interval
@@ -228,11 +224,14 @@ class RobotSimulator:
             if resp.status_code == 403 or not body.get('ok'):
                 print(f'[{_ts()}] 设备未注册，正在注册 {self.device_id} ...')
                 _, reg = _post_json(
-                    self._register_url,
+                    f'{self.server}/api/robot/register_device',
                     {'device_id': self.device_id, 'name': self.name},
                     timeout=5
                 )
                 if reg.get('ok'):
+                    if reg.get('robot_id') is not None:
+                        with self._lock:
+                            self._db_id = reg.get('robot_id')
                     print(f'[{_ts()}] 注册成功')
                 else:
                     print(f'[{_ts()}] 注册失败: {reg}')
@@ -369,8 +368,11 @@ class RobotSimulator:
                 if body.get('ok'):
                     srv_cmd = body.get('command', 'IDLE')
                     srv_target = body.get('target') or {}
+                    robot_id = body.get('robot_id')
                     with self._lock:
                         self._server_cmd = srv_cmd
+                        if robot_id is not None:
+                            self._db_id = robot_id
                     self._handle_server_command(srv_cmd, srv_target)
                 elif resp.status_code == 403:
                     _warn('设备被服务器拒绝（403），尝试重新注册')
@@ -402,6 +404,14 @@ class RobotSimulator:
             tlng = target.get('lng')
             if tlat is not None and tlng is not None:
                 with self._lock:
+                    current_lat = self._lat
+                    current_lng = self._lng
+                    current_nav = self._nav_target
+                dist = math.sqrt((float(tlat) - current_lat) ** 2 + (float(tlng) - current_lng) ** 2)
+                if dist <= _NAV_ARRIVE_THRESHOLD and current_nav is None:
+                    return
+                with self._lock:
+                    self._paused = False
                     self._nav_target = (float(tlat), float(tlng))
                     self._moving = 'NAVIGATE'
                 _info(f'服务器导航指令 → 目标 ({tlat:.6f}, {tlng:.6f})')
@@ -441,11 +451,12 @@ class RobotSimulator:
     # ------------------------------------------------------------------
 
     def _robot_id_payload(self):
+        payload = {'device_id': self.device_id}
         with self._lock:
             db_id = self._db_id
         if db_id is not None:
-            return {'id': db_id}
-        return {'device_id': self.device_id}
+            payload['id'] = db_id
+        return payload
 
     def send_control(self, command):
         """通过 /api/robot/control 向服务器下发命令。"""
@@ -468,6 +479,7 @@ class RobotSimulator:
             resp, body = _post_json(self._navigate_url, payload, timeout=5)
             if body.get('ok'):
                 with self._lock:
+                    self._paused = False
                     self._nav_target = (tlat, tlng)
                     self._moving = 'NAVIGATE'
                 _info(f'✔ 导航目标已设定: ({tlat:.6f}, {tlng:.6f})')
@@ -494,6 +506,7 @@ class RobotSimulator:
             elif command == 'RESUME':
                 self._paused = False
             elif command in movement_modes:
+                self._paused = False
                 self._nav_target = None
                 self._moving = command
 
@@ -660,7 +673,7 @@ def run_cli():
     parser.add_argument('--lat',      type=float, default=30.5,        help='初始纬度')
     parser.add_argument('--lng',      type=float, default=114.3,       help='初始经度')
     parser.add_argument('--battery',  type=float, default=90.0,        help='初始电量 (0-100)')
-    parser.add_argument('--interval', type=float, default=2.0,         help='心跳间隔（秒）')
+    parser.add_argument('--interval', type=float, default=0.5,         help='心跳间隔（秒）')
     args = parser.parse_args()
 
     sim = RobotSimulator(

@@ -1,2 +1,2 @@
 from .db import db
-from .models import DetectTask, DetectItem, OpsLog
+from .models import DetectTask, DetectItem, OpsLog, Robot, RobotPatrolTask
