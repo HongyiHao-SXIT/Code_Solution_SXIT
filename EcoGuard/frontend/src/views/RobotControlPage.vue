@@ -147,11 +147,14 @@ onBeforeUnmount(() => {
           <div class="chart-wrap robot-control-stack">
             <img :src="cameraSrc" alt="camera" class="robot-camera">
             <div class="form-row">
-              <input v-model.trim="streamUrl" placeholder="摄像头流地址（例如 http://192.168.1.100:8080/stream）" class="input-control">
+              <input v-model.trim="streamUrl" placeholder="摄像头流地址（例如 http://192.168.1.100:8080/stream）"
+                class="input-control">
               <button type="button" @click="setStream">设置</button>
             </div>
             <div class="robot-cmd-grid">
-              <button v-for="command in ['FORWARD','LEFT','STOP','RIGHT','BACK','PICK_TRASH','SLOW_FORWARD','FAST_FORWARD','SPIN_LEFT','SPIN_RIGHT','PAUSE','RESUME','CANCEL_NAVIGATION','HOLD_POSITION','RETURN_HOME','DOCK']" :key="command" type="button" class="ctl-btn" @click="sendCommand(command)">{{ command }}</button>
+              <button
+                v-for="command in ['FORWARD', 'LEFT', 'STOP', 'RIGHT', 'BACK', 'PICK_TRASH', 'SLOW_FORWARD', 'FAST_FORWARD', 'SPIN_LEFT', 'SPIN_RIGHT', 'PAUSE', 'RESUME', 'CANCEL_NAVIGATION', 'HOLD_POSITION', 'RETURN_HOME', 'DOCK']"
+                :key="command" type="button" class="ctl-btn" @click="sendCommand(command)">{{ command }}</button>
             </div>
             <div class="form-row">
               <input v-model.trim="customCmd" class="input-control" placeholder="自定义指令（如 RESET）">
@@ -162,12 +165,25 @@ onBeforeUnmount(() => {
               <div class="robot-status-header">
                 <div class="robot-name">{{ robot?.name || '-' }}</div>
                 <div class="robot-device">ID: {{ robot?.device_id || '-' }}</div>
-                <span id="robotStatusBadge" class="status-badge" :class="robot?.status === 'ONLINE' ? 'status-online' : 'status-offline'">{{ robot?.status || 'OFFLINE' }}</span>
+                <span id="robotStatusBadge" class="status-badge"
+                  :class="robot?.status === 'ONLINE' ? 'status-online' : 'status-offline'">{{ robot?.status || 'OFFLINE'
+                  }}</span>
               </div>
-              <div class="robot-status-row"><span class="label">电量</span><div class="battery-bar"><div id="robotBatteryBar" class="battery-bar-inner" :style="{ width: `${robot?.battery || 0}%` }"></div></div><span id="robotBatteryText" class="value">{{ robot?.battery != null ? `${robot.battery}%` : '-' }}</span></div>
-              <div class="robot-status-row"><span class="label">位置</span><span id="robotPosition" class="value">{{ robot?.lat != null && robot?.lng != null ? `${robot.lat.toFixed(5)}, ${robot.lng.toFixed(5)}` : '--' }}</span></div>
-              <div class="robot-status-row"><span class="label">目标</span><span id="robotTarget" class="value">{{ robot?.target?.lat != null && robot?.target?.lng != null ? `${robot.target.lat.toFixed(5)}, ${robot.target.lng.toFixed(5)}` : '--' }}</span></div>
-              <div class="robot-status-row"><span class="label">上线时间</span><span id="robotLastHeartbeat" class="value">{{ robot?.last_heartbeat || '--' }}</span></div>
+              <div class="robot-status-row"><span class="label">电量</span>
+                <div class="battery-bar">
+                  <div id="robotBatteryBar" class="battery-bar-inner" :style="{ width: `${robot?.battery || 0}%` }">
+                  </div>
+                </div><span id="robotBatteryText" class="value">{{ robot?.battery != null ? `${robot.battery}%` : '-'
+                }}</span>
+              </div>
+              <div class="robot-status-row"><span class="label">位置</span><span id="robotPosition" class="value">{{
+                robot?.lat != null && robot?.lng != null ? `${robot.lat.toFixed(5)}, ${robot.lng.toFixed(5)}` : '--'
+              }}</span></div>
+              <div class="robot-status-row"><span class="label">目标</span><span id="robotTarget" class="value">{{
+                robot?.target?.lat != null && robot?.target?.lng != null ? `${robot.target.lat.toFixed(5)},
+                  ${robot.target.lng.toFixed(5)}` : '--' }}</span></div>
+              <div class="robot-status-row"><span class="label">上线时间</span><span id="robotLastHeartbeat"
+                  class="value">{{ robot?.last_heartbeat || '--' }}</span></div>
               <div class="robot-status-row">
                 <span class="label">导航</span>
                 <div class="robot-nav-inline">

@@ -57,7 +57,8 @@ onMounted(loadDetail)
           <h4 class="section-title">识别结果</h4>
           <ul v-if="items.length" class="detail-list">
             <li v-for="item in items" :key="item.id">
-              Label: {{ item.label }} | 置信度: {{ Number(item.confidence || 0).toFixed(2) }} | 处理状态: {{ item.handle_state }}
+              Label: {{ item.label }} | 置信度: {{ Number(item.confidence || 0).toFixed(2) }} | 处理状态: {{ item.handle_state
+              }}
             </li>
           </ul>
           <p v-else class="text-muted">尚无识别项。</p>
@@ -65,9 +66,12 @@ onMounted(loadDetail)
         <hr>
         <div class="image-size-controls">
           <span class="image-size-label">图片大小</span>
-          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'md' }" @click="imageSize = 'md'">中</button>
-          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'sm' }" @click="imageSize = 'sm'">小</button>
-          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'lg' }" @click="imageSize = 'lg'">大</button>
+          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'md' }"
+            @click="imageSize = 'md'">中</button>
+          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'sm' }"
+            @click="imageSize = 'sm'">小</button>
+          <button type="button" class="image-size-btn" :class="{ active: imageSize === 'lg' }"
+            @click="imageSize = 'lg'">大</button>
         </div>
         <div id="detailImageGrid" class="detail-image-grid" :class="`size-${imageSize}`">
           <div v-if="task.source_path" class="detail-image-col">

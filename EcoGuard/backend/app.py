@@ -91,6 +91,9 @@ def create_app():
     db.init_app(app)
 
     with app.app_context():
+        os.makedirs(app.config.get('STATIC_DIR', os.path.join(app.root_path, 'static')), exist_ok=True)
+        os.makedirs(app.config.get('UPLOAD_DIR', os.path.join(app.root_path, 'static', 'uploads')), exist_ok=True)
+        os.makedirs(app.config.get('RESULT_DIR', os.path.join(app.root_path, 'static', 'results')), exist_ok=True)
         db.create_all()
         ensure_ownership_schema(app)
         ensure_bootstrap_admin(app)

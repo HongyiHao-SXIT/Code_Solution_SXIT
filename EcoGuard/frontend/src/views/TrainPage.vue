@@ -205,17 +205,13 @@ loadTrainConfig()
         <div class="upload-col upload-control-col">
           <div class="upload-card">
             <div class="section-title section-title-sm">1. 上传标注数据集</div>
-            <p v-if="trainMaxBytes" class="text-muted" style="margin:0 0 8px;">当前上传上限：{{ formatBytes(trainMaxBytes) }}</p>
+            <p v-if="trainMaxBytes" class="text-muted" style="margin:0 0 8px;">当前上传上限：{{ formatBytes(trainMaxBytes) }}
+            </p>
             <div class="upload-drop-area" @click="datasetInput?.click()">
               {{ datasetZip ? `已选择: ${datasetZip.name}` : '点击选择 ZIP 数据集（含 images/labels 与 data.yaml）' }}
             </div>
-            <input
-              ref="datasetInput"
-              class="hidden"
-              type="file"
-              accept=".zip,application/zip"
-              @change="chooseDataset($event.target.files?.[0])"
-            >
+            <input ref="datasetInput" class="hidden" type="file" accept=".zip,application/zip"
+              @change="chooseDataset($event.target.files?.[0])">
           </div>
 
           <div class="upload-card">
@@ -223,13 +219,8 @@ loadTrainConfig()
             <div class="upload-drop-area" @click="weightInput?.click()">
               {{ weightFile ? `已选择: ${weightFile.name}` : '点击选择 .pt 权重（不选则使用后端默认 YOLO_MODEL_PATH）' }}
             </div>
-            <input
-              ref="weightInput"
-              class="hidden"
-              type="file"
-              accept=".pt"
-              @change="chooseWeight($event.target.files?.[0])"
-            >
+            <input ref="weightInput" class="hidden" type="file" accept=".pt"
+              @change="chooseWeight($event.target.files?.[0])">
           </div>
         </div>
 
@@ -239,11 +230,14 @@ loadTrainConfig()
 
             <div class="form-row mt-8">
               <input v-model.trim="form.dataYaml" class="input-control" placeholder="data.yaml 路径（默认 data.yaml）">
-              <input v-model.number="form.epochs" class="input-control" type="number" min="1" max="10000" placeholder="epochs">
+              <input v-model.number="form.epochs" class="input-control" type="number" min="1" max="10000"
+                placeholder="epochs">
             </div>
             <div class="form-row mt-8">
-              <input v-model.number="form.batch" class="input-control" type="number" min="1" max="256" placeholder="batch">
-              <input v-model.number="form.imgsz" class="input-control" type="number" min="64" max="4096" placeholder="imgsz">
+              <input v-model.number="form.batch" class="input-control" type="number" min="1" max="256"
+                placeholder="batch">
+              <input v-model.number="form.imgsz" class="input-control" type="number" min="64" max="4096"
+                placeholder="imgsz">
             </div>
             <div class="form-row mt-8">
               <input v-model.trim="form.device" class="input-control" placeholder="device，例如 cpu 或 0">
@@ -258,12 +252,8 @@ loadTrainConfig()
                 {{ loading ? '提交中...' : '开始继续训练' }}
               </button>
               <button type="button" @click="resetForm">重置表单</button>
-              <button
-                v-if="currentJob?.job_id"
-                type="button"
-                :disabled="loading"
-                @click="fetchStatus(currentJob.job_id, true)"
-              >
+              <button v-if="currentJob?.job_id" type="button" :disabled="loading"
+                @click="fetchStatus(currentJob.job_id, true)">
                 刷新状态
               </button>
             </div>
@@ -279,7 +269,8 @@ loadTrainConfig()
               <p v-if="currentJob.completed_at">完成时间：{{ currentJob.completed_at }}</p>
               <p v-if="currentJob.error" style="color:#ff6363;">错误：{{ currentJob.error }}</p>
               <p v-if="currentJob.result?.save_dir">输出目录：{{ currentJob.result.save_dir }}</p>
-              <p v-if="polling && currentJob.status !== 'completed' && currentJob.status !== 'failed'">轮询中：每 2.5 秒自动刷新</p>
+              <p v-if="polling && currentJob.status !== 'completed' && currentJob.status !== 'failed'">轮询中：每 2.5 秒自动刷新
+              </p>
             </div>
             <div v-else class="text-muted">暂无训练任务</div>
           </div>
@@ -289,7 +280,9 @@ loadTrainConfig()
             <div class="table-wrap max-h-520">
               <table class="data-table">
                 <thead>
-                  <tr><th>日志</th></tr>
+                  <tr>
+                    <th>日志</th>
+                  </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(line, idx) in currentJob?.logs || []" :key="`${idx}-${line}`">

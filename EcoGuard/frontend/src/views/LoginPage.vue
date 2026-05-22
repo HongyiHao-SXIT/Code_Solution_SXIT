@@ -70,13 +70,9 @@ onMounted(() => {
           <div v-if="captcha.enabled" class="field-block">
             <label for="captcha_text">图形验证码</label>
             <div class="captcha-row">
-              <input id="captcha_text" v-model.trim="form.captcha_text" type="text" maxlength="8" required placeholder="请输入验证码">
-              <img
-                v-if="captcha.image_data"
-                :src="captcha.image_data"
-                alt="captcha"
-                class="captcha-image"
-              >
+              <input id="captcha_text" v-model.trim="form.captcha_text" type="text" maxlength="8" required
+                placeholder="请输入验证码">
+              <img v-if="captcha.image_data" :src="captcha.image_data" alt="captcha" class="captcha-image">
               <button type="button" class="captcha-refresh" :disabled="captchaLoading" @click="loadCaptcha">
                 {{ captchaLoading ? '加载中...' : '刷新' }}
               </button>

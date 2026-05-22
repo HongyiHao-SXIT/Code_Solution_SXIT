@@ -320,31 +320,18 @@ onMounted(loadUsers)
                 </div>
 
                 <div class="user-col user-col-actions">
-                  <button
-                    v-if="canManage"
-                    type="button"
-                    class="btn-detail"
-                    :disabled="row.is_current_user || editingUserId !== null"
-                    @click="startEdit(row)"
-                  >
+                  <button v-if="canManage" type="button" class="btn-detail"
+                    :disabled="row.is_current_user || editingUserId !== null" @click="startEdit(row)">
                     编辑信息
                   </button>
-                  <button
-                    v-if="canManage"
-                    type="button"
-                    class="btn-detail"
+                  <button v-if="canManage" type="button" class="btn-detail"
                     :disabled="updatingUserId === row.id || editingUserId !== null || (row.is_current_user && row.role === 'admin')"
-                    @click="toggleRole(row)"
-                  >
+                    @click="toggleRole(row)">
                     {{ updatingUserId === row.id ? '更新中...' : (row.role === 'admin' ? '降为普通用户' : '设为管理员') }}
                   </button>
-                  <button
-                    v-if="canManage"
-                    type="button"
-                    class="btn-delete"
+                  <button v-if="canManage" type="button" class="btn-delete"
                     :disabled="deletingUserId === row.id || editingUserId !== null || row.is_current_user"
-                    @click="removeUser(row)"
-                  >
+                    @click="removeUser(row)">
                     {{ deletingUserId === row.id ? '删除中...' : '删除' }}
                   </button>
                 </div>
@@ -704,6 +691,7 @@ onMounted(loadUsers)
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -711,6 +699,7 @@ onMounted(loadUsers)
 }
 
 @media (max-width: 980px) {
+
   .user-summary,
   .user-main-grid {
     grid-template-columns: 1fr;

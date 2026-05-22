@@ -169,8 +169,9 @@ def load_detector():
 
 
 def ensure_storage_dirs():
-    upload_dir = current_app.config.get('UPLOAD_DIR', 'static/uploads')
-    result_dir = current_app.config.get('RESULT_DIR', 'static/results')
+    static_root = os.path.join(current_app.root_path, 'static')
+    upload_dir = current_app.config.get('UPLOAD_DIR', os.path.join(static_root, 'uploads'))
+    result_dir = current_app.config.get('RESULT_DIR', os.path.join(static_root, 'results'))
     os.makedirs(upload_dir, exist_ok=True)
     os.makedirs(result_dir, exist_ok=True)
 

@@ -1,4 +1,5 @@
 import io
+import os
 import unittest
 from unittest.mock import patch
 
@@ -27,13 +28,15 @@ class _FakeEmptyDetector:
 
 class DetectApiRoutesTestCase(unittest.TestCase):
     def setUp(self):
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        static_dir = os.path.join(backend_dir, 'static')
         self.app = Flask(__name__)
         self.app.config.update({
             'TESTING': True,
             'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
-            'UPLOAD_DIR': 'static/uploads',
-            'RESULT_DIR': 'static/results',
+            'UPLOAD_DIR': os.path.join(static_dir, 'uploads'),
+            'RESULT_DIR': os.path.join(static_dir, 'results'),
             'ALLOWED_EXTENSIONS': {'png', 'jpg', 'jpeg'},
             'YOLO_CONF_THRESHOLD': 0.25,
         })

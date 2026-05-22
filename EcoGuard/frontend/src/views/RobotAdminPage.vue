@@ -874,11 +874,8 @@ onBeforeUnmount(() => {
 
     <div id="robotMap" class="robot-map-full"></div>
 
-    <div
-      v-if="markerMenu.visible"
-      class="marker-context-menu"
-      :style="{ left: `${markerMenu.x}px`, top: `${markerMenu.y}px` }"
-    >
+    <div v-if="markerMenu.visible" class="marker-context-menu"
+      :style="{ left: `${markerMenu.x}px`, top: `${markerMenu.y}px` }">
       <button type="button" class="square-btn" @click="openEditor(markerMenu.robotId, 'robot')">编辑机器人</button>
       <button type="button" class="square-btn" @click="openEditor(markerMenu.robotId, 'task')">编辑巡检任务</button>
       <button type="button" class="square-btn btn-delete" @click="deleteRobot(markerMenu.robotId)">删除机器人</button>
@@ -895,20 +892,12 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="drawer-mode-switch">
-        <button
-          type="button"
-          class="square-btn"
-          :class="{ 'square-btn-active': editorMode === 'robot' }"
-          @click="editorMode = 'robot'"
-        >
+        <button type="button" class="square-btn" :class="{ 'square-btn-active': editorMode === 'robot' }"
+          @click="editorMode = 'robot'">
           机器人管理
         </button>
-        <button
-          type="button"
-          class="square-btn"
-          :class="{ 'square-btn-active': editorMode === 'task' }"
-          @click="editorMode = 'task'"
-        >
+        <button type="button" class="square-btn" :class="{ 'square-btn-active': editorMode === 'task' }"
+          @click="editorMode = 'task'">
           巡检任务管理
         </button>
       </div>
@@ -927,13 +916,16 @@ onBeforeUnmount(() => {
 
       <div v-if="editorMode === 'task'" class="drawer-body task-drawer-body">
         <div class="task-map-tools">
-          <button type="button" class="square-btn" :class="{ 'square-btn-active': taskPickMode === 'area' }" @click="startTaskPickMode('area')">地图选四点-区域</button>
-          <button type="button" class="square-btn" :class="{ 'square-btn-active': taskPickMode === 'path' }" @click="startTaskPickMode('path')">地图选四点-路径</button>
+          <button type="button" class="square-btn" :class="{ 'square-btn-active': taskPickMode === 'area' }"
+            @click="startTaskPickMode('area')">地图选四点-区域</button>
+          <button type="button" class="square-btn" :class="{ 'square-btn-active': taskPickMode === 'path' }"
+            @click="startTaskPickMode('path')">地图选四点-路径</button>
           <button type="button" class="square-btn" @click="stopTaskPickMode">停止选点</button>
           <button type="button" class="square-btn" @click="applyTextToMapPreview">文本预览</button>
         </div>
 
-        <div class="task-map-hint">模式：{{ taskPickModeLabel }} ｜ 区域 {{ taskAreaPoints.length }}/{{ MAP_PICK_POINT_LIMIT }} ｜ 路径 {{ taskPathPoints.length }}/{{ MAP_PICK_POINT_LIMIT }}</div>
+        <div class="task-map-hint">模式：{{ taskPickModeLabel }} ｜ 区域 {{ taskAreaPoints.length }}/{{ MAP_PICK_POINT_LIMIT
+          }} ｜ 路径 {{ taskPathPoints.length }}/{{ MAP_PICK_POINT_LIMIT }}</div>
 
         <input v-model.trim="taskName" class="input-control" placeholder="任务名称，例如：校园北区早巡">
         <select v-model="taskStatus" class="input-control">
@@ -944,20 +936,24 @@ onBeforeUnmount(() => {
           <span>巡检区域坐标（固定 4 点）</span>
           <button type="button" class="square-btn" @click="clearAreaPoints">清空区域</button>
         </div>
-        <textarea v-model="taskAreaText" class="input-control task-textarea" placeholder="每行一个点：\n30.123456,120.123456\n30.223456,120.223456\n30.323456,120.323456\n30.423456,120.423456"></textarea>
+        <textarea v-model="taskAreaText" class="input-control task-textarea"
+          placeholder="每行一个点：\n30.123456,120.123456\n30.223456,120.223456\n30.323456,120.323456\n30.423456,120.423456"></textarea>
 
         <div class="task-textarea-head">
           <span>规划路径坐标（为空或固定 4 点）</span>
           <button type="button" class="square-btn" @click="clearPathPoints">清空路径</button>
         </div>
-        <textarea v-model="taskPathText" class="input-control task-textarea" placeholder="每行一个点：\n30.120000,120.120000\n30.220000,120.220000\n30.320000,120.320000\n30.420000,120.420000"></textarea>
+        <textarea v-model="taskPathText" class="input-control task-textarea"
+          placeholder="每行一个点：\n30.120000,120.120000\n30.220000,120.220000\n30.320000,120.320000\n30.420000,120.420000"></textarea>
 
         <div class="drawer-actions">
-          <button type="button" class="square-btn" :disabled="taskSaving" @click="savePatrolTask">{{ taskSaving ? '提交中...' : (editingTaskId ? '保存更新' : '新建任务') }}</button>
+          <button type="button" class="square-btn" :disabled="taskSaving" @click="savePatrolTask">{{ taskSaving ?
+            '提交中...' : (editingTaskId ? '保存更新' : '新建任务') }}</button>
           <button type="button" class="square-btn" @click="resetTaskForm">重置</button>
         </div>
 
-        <div v-if="taskActionMessage" class="task-action-feedback" :class="`task-action-${taskActionType}`">{{ taskActionMessage }}</div>
+        <div v-if="taskActionMessage" class="task-action-feedback" :class="`task-action-${taskActionType}`">{{
+          taskActionMessage }}</div>
         <div v-if="editingTaskId" class="task-editing-tip">当前编辑任务 #{{ editingTaskId }}</div>
 
         <div class="task-list-wrap">

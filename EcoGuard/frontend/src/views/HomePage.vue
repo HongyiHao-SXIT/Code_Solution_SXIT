@@ -141,10 +141,11 @@ async function loadDashboard() {
 
 onMounted(() => {
   chart = echarts.init(document.getElementById('trashTypeChart'))
-  map = L.map('map').setView([30, 110], 5)
+  map = L.map('map', { zoomControl: false }).setView([30, 110], 5)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map)
+  L.control.zoom({ position: 'topright' }).addTo(map)
   map.on('dragstart zoomstart', () => {
     mapInteracted = true
   })
@@ -170,62 +171,215 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="layout-content">
-    <div class="layout-left">
-      <div class="layout-inner-left layout-full-width">
-        <div class="panel stats-trash-type">
-          <div class="panel-title">垃圾种类分布统计</div>
-          <div class="chart-wrap">
-            <div id="trashTypeChart" class="chart-fixed-220"></div>
-          </div>
-        </div>
+  <div class="home-page">
+    <div class="home-map-stage">
+      <div id="map" class="home-map"></div>
 
-        <div class="panel robot-status robot-list">
+      <div class="home-float-panel">
+        <section class="panel home-overlay-panel">
+          <div class="panel-title">垃圾种类环形图</div>
+          <div class="home-overlay-body">
+            <div id="trashTypeChart" class="home-donut-chart"></div>
+          </div>
+        </section>
+
+        <section class="panel home-overlay-panel">
           <div class="panel-title">机器人在线状态</div>
-          <div class="chart-wrap">
-            <ul class="list-head">
-              <li>
-                <span>设备ID</span>
-                <span>名称</span>
-                <span>实时状态</span>
-              </li>
-            </ul>
-            <ul id="robotListContainer" class="list-body">
-              <li v-for="robot in robotList" :key="robot.device_id || robot.name" class="list-item">
-                <span>{{ robot.device_id }}</span>
-                <span>{{ robot.name }}</span>
-                <span :class="robot.status === 'ONLINE' ? 'status-online-text' : 'status-offline-text'">
-                  {{ robot.status === 'ONLINE' ? '● 在线' : '● 离线' }}
-                </span>
-              </li>
-              <li v-if="!robotList.length" class="list-item"><span>载入中...</span></li>
-            </ul>
+          <div class="home-overlay-body home-table-body">
+            <div class="home-status-summary">
+              <span class="home-status-pill home-status-pill-online">在线 {{robotList.filter((robot) => robot.status ===
+                'ONLINE').length }}</span>
+              <span class="home-status-pill">总数 {{ robotList.length }}</span>
+            </div>
+            <div class="home-status-table-wrap">
+              <table class="home-status-table">
+                <thead>
+                  <tr>
+                    <th>设备ID</th>
+                    <th>名称</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="robot in robotList" :key="robot.device_id || robot.name">
+                    <td>{{ robot.device_id }}</td>
+                    <td>{{ robot.name }}</td>
+                    <td :class="robot.status === 'ONLINE' ? 'status-online-text' : 'status-offline-text'">
+                      {{ robot.status === 'ONLINE' ? '● 在线' : '● 离线' }}
+                    </td>
+                  </tr>
+                  <tr v-if="!robotList.length">
+                    <td colspan="3" class="home-empty-row">载入中...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-
-        <div class="panel control-pages">
-          <div class="panel-title">控制面板</div>
-          <div class="chart-wrap">
-            <ul class="list-head">
-              <li><RouterLink to="/robot"><div class="icon icon-robot"></div><div class="control-title">机器人管理</div></RouterLink></li>
-              <li><RouterLink to="/result"><div class="icon icon-task"></div><div class="control-title">任务管理</div></RouterLink></li>
-              <li><RouterLink to="/stats"><div class="icon icon-data"></div><div class="control-title">数据分析</div></RouterLink></li>
-              <li><RouterLink to="/train"><div class="icon icon-data"></div><div class="control-title">继续训练</div></RouterLink></li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="layout-center">
-      <div class="panel map-main">
-        <div class="panel-title">垃圾分布实况地图</div>
-        <div class="chart-wrap map-wrap">
-          <div class="map-box">
-            <div id="map" class="fill-parent"></div>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.home-page {
+  width: 100%;
+  height: calc(100vh - 120px);
+  min-height: 640px;
+}
+
+.home-map-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.home-map {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.home-float-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 500;
+  width: min(420px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+}
+
+.home-overlay-panel {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+}
+
+.home-overlay-body {
+  padding: 10px;
+}
+
+.home-donut-chart {
+  width: 100%;
+  height: 220px;
+}
+
+.home-table-body {
+  display: grid;
+  gap: 10px;
+}
+
+.home-status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(31, 142, 115, 0.1);
+  color: #1d5f50;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.home-status-pill-online {
+  background: rgba(31, 142, 115, 0.16);
+  color: #0f7d5d;
+}
+
+.home-status-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(36, 108, 91, 0.14);
+}
+
+.home-status-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.home-status-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 10px;
+  text-align: left;
+  background: rgba(240, 248, 243, 0.98);
+  color: #1d554a;
+  border-bottom: 1px solid rgba(36, 108, 91, 0.16);
+}
+
+.home-status-table tbody td {
+  padding: 9px 10px;
+  color: #315950;
+  border-bottom: 1px solid rgba(36, 108, 91, 0.08);
+}
+
+.home-status-table tbody tr:hover {
+  background: rgba(47, 133, 111, 0.07);
+}
+
+.home-empty-row {
+  text-align: center;
+  color: #5a726d;
+}
+
+@media (max-width: 900px) {
+  .home-page {
+    height: calc(100vh - 112px);
+    min-height: 560px;
+  }
+
+  .home-float-panel {
+    width: min(360px, calc(100% - 20px));
+    top: 10px;
+    left: 10px;
+    max-height: calc(100% - 20px);
+  }
+
+  .home-donut-chart {
+    height: 180px;
+  }
+
+  .home-status-table-wrap {
+    max-height: 220px;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-page {
+    height: calc(100vh - 104px);
+    min-height: 520px;
+  }
+
+  .home-float-panel {
+    width: calc(100% - 16px);
+    top: 8px;
+    left: 8px;
+    max-height: calc(100% - 16px);
+  }
+
+  .home-overlay-body {
+    padding: 8px;
+  }
+
+  .home-donut-chart {
+    height: 160px;
+  }
+
+  .home-status-table {
+    font-size: 11px;
+  }
+}
+</style>

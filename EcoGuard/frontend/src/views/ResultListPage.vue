@@ -53,11 +53,8 @@ onMounted(loadRows)
 
 <template>
   <div class="panel page-panel result-list-page">
-    <div class="panel-title">结果列表</div>
+    <div class="panel-title">检测结果</div>
     <div class="panel-body">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <div class="section-title section-title-sm" style="margin:0;">任务视图</div>
-      </div>
       <div v-if="loading" class="page-loading">载入中...</div>
       <template v-else>
         <div class="table-wrap">
@@ -65,7 +62,7 @@ onMounted(loadRows)
             <thead>
               <tr>
                 <th>ID</th>
-                <th>来源</th>
+                <th>上传机器人</th>
                 <th>设备ID</th>
                 <th>状态</th>
                 <th>位置</th>
@@ -83,7 +80,7 @@ onMounted(loadRows)
                 <td>{{ task.created_at || '-' }}</td>
                 <td class="col-center col-nowrap">
                   <RouterLink class="btn-detail result-list-square-btn" :to="`/result/${task.id}`">详情</RouterLink>
-                  <button v-if="canDelete" type="button" class="btn-delete" style="margin-left:6px;" @click="deleteTask(task.id)">删除任务</button>
+                  <button v-if="canDelete" type="button" class="btn-delete" style="margin-left:6px;" @click="deleteTask(task.id)">删除</button>
                 </td>
               </tr>
               <tr v-if="!rows.length">

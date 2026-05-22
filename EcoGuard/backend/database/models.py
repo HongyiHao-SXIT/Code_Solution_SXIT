@@ -5,7 +5,7 @@ from flask_login import UserMixin
 import werkzeug.security as security
 
 class User(db.Model, UserMixin):
-    __tablename__ = 'user'
+    __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
@@ -52,7 +52,7 @@ class User(db.Model, UserMixin):
 
 
 class DetectTask(db.Model):
-    __tablename__ = 'detect_task'
+    __tablename__ = 'detection_tasks'
 
     id = db.Column(db.Integer, primary_key=True)
     source_type = db.Column(db.String(20))
@@ -105,10 +105,10 @@ class DetectTask(db.Model):
 
 
 class DetectItem(db.Model):
-    __tablename__ = 'detect_item'
+    __tablename__ = 'detection_items'
 
     id = db.Column(db.Integer, primary_key=True)
-    task_id = db.Column(db.Integer, db.ForeignKey('detect_task.id'), index=True)
+    task_id = db.Column(db.Integer, db.ForeignKey('detection_tasks.id'), index=True)
     label = db.Column(db.String(50), index=True)
     confidence = db.Column(db.Float)
     x1 = db.Column(db.Integer)
@@ -143,7 +143,7 @@ class DetectItem(db.Model):
 
 
 class OpsLog(db.Model):
-    __tablename__ = 'ops_log'
+    __tablename__ = 'operation_logs'
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer)
@@ -152,10 +152,10 @@ class OpsLog(db.Model):
 
 
 class RobotPatrolTask(db.Model):
-    __tablename__ = 'robot_patrol_task'
+    __tablename__ = 'robot_patrol_tasks'
 
     id = db.Column(db.Integer, primary_key=True)
-    robot_id = db.Column(db.Integer, db.ForeignKey('robot.id', ondelete='CASCADE'), nullable=False, index=True)
+    robot_id = db.Column(db.Integer, db.ForeignKey('robots.id', ondelete='CASCADE'), nullable=False, index=True)
     name = db.Column(db.String(120), nullable=False)
     inspection_area = db.Column(db.Text, nullable=False)
     planned_path = db.Column(db.Text, nullable=True)
@@ -182,7 +182,7 @@ class RobotPatrolTask(db.Model):
 
 
 class Robot(db.Model):
-    __tablename__ = 'robot'
+    __tablename__ = 'robots'
 
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(50), unique=True, nullable=False)

@@ -69,5 +69,5 @@ export function pushFlash(message, category = 'success') {
     category,
     path: window.location.pathname,
     source: 'flash',
-  }).catch(() => {})
+  }).catch(() => { })
 }

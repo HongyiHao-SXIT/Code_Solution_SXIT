@@ -1,10 +1,10 @@
 import unittest
 from datetime import datetime, timedelta
 
-from ml.algorithm import build_hotspot_forecast
+from ml.hotspot_forecasting import build_hotspot_forecast
 
 
-class MlAlgorithmTestCase(unittest.TestCase):
+class HotspotForecastingTestCase(unittest.TestCase):
     def test_empty_records_returns_no_hotspots(self):
         payload = build_hotspot_forecast(records=[], lookback_days=30, top_k=5)
         self.assertEqual(payload['summary']['cells_analyzed'], 0)

@@ -192,8 +192,14 @@ onBeforeUnmount(() => {
     <div class="panel-title">数据分析</div>
     <div class="panel-body">
       <div class="stats-grid">
-        <div class="stats-card"><div class="section-title section-title-sm">垃圾种类分布</div><div id="pieChart" class="chart-fixed-260"></div></div>
-        <div class="stats-card"><div class="section-title section-title-sm">全部识别趋势</div><div id="lineChart" class="chart-fixed-260"></div></div>
+        <div class="stats-card">
+          <div class="section-title section-title-sm">垃圾种类分布</div>
+          <div id="pieChart" class="chart-fixed-260"></div>
+        </div>
+        <div class="stats-card">
+          <div class="section-title section-title-sm">全部识别趋势</div>
+          <div id="lineChart" class="chart-fixed-260"></div>
+        </div>
         <div class="stats-card">
           <div class="section-title section-title-sm">未来 24 小时热点预测</div>
           <div class="hotspot-prob-list">
@@ -219,13 +225,15 @@ onBeforeUnmount(() => {
             <div v-for="item in forecastHotspots" :key="`hotspot-${item.rank}`" class="forecast-list-item">
               <div class="forecast-list-head">
                 <span class="forecast-rank">TOP {{ item.rank }}</span>
-                <span class="forecast-risk" :style="{ background: riskColor(item.riskScore) }">风险 {{ item.riskScore }}</span>
+                <span class="forecast-risk" :style="{ background: riskColor(item.riskScore) }">风险 {{ item.riskScore
+                }}</span>
               </div>
               <div class="forecast-list-main">预测目标数 {{ item.predictedCount }}，主导类型：{{ item.dominantLabels }}</div>
               <div class="forecast-list-sub">位置：{{ item.displayName }}</div>
               <div class="forecast-list-sub">{{ item.reason }}</div>
             </div>
-            <div v-for="(item, index) in recommendationNotes" :key="`note-${index}`" class="forecast-list-note">{{ item }}</div>
+            <div v-for="(item, index) in recommendationNotes" :key="`note-${index}`" class="forecast-list-note">{{ item
+            }}</div>
             <div v-if="!forecastHotspots.length && !recommendationNotes.length" class="forecast-list-note">暂无巡检建议</div>
           </div>
         </div>

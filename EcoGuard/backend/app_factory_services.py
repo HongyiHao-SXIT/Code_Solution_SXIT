@@ -54,32 +54,53 @@ def ensure_ownership_schema_impl(app, db_obj, logger=None):
 
     try:
         inspector = inspect(db_obj.engine)
+        table_names = set(inspector.get_table_names())
+
+        def _pick_table_name(*candidates):
+            for candidate in candidates:
+                if candidate in table_names:
+                    return candidate
+            return None
+
+        users_table = _pick_table_name('users', 'user')
+        tasks_table = _pick_table_name('detection_tasks', 'detect_task')
+        robots_table = _pick_table_name('robots', 'robot')
+        patrol_tasks_table = _pick_table_name('robot_patrol_tasks', 'robot_patrol_task')
+
+        if not users_table or not tasks_table or not robots_table:
+            return
+
         table_column_names = {
-            'user': {column['name'] for column in inspector.get_columns('user')},
-            'detect_task': {column['name'] for column in inspector.get_columns('detect_task')},
-            'robot': {column['name'] for column in inspector.get_columns('robot')},
+            users_table: {column['name'] for column in inspector.get_columns(users_table)},
+            tasks_table: {column['name'] for column in inspector.get_columns(tasks_table)},
+            robots_table: {column['name'] for column in inspector.get_columns(robots_table)},
         }
         table_index_names = {
-            'detect_task': {index['name'] for index in inspector.get_indexes('detect_task')},
-            'robot': {index['name'] for index in inspector.get_indexes('robot')},
+            tasks_table: {index['name'] for index in inspector.get_indexes(tasks_table)},
+            robots_table: {index['name'] for index in inspector.get_indexes(robots_table)},
         }
 
         ddl_statements = []
-        if 'organization' not in table_column_names['user']:
-            ddl_statements.append('ALTER TABLE `user` ADD COLUMN organization VARCHAR(120)')
-        if 'user_id' not in table_column_names['detect_task']:
-            ddl_statements.append('ALTER TABLE detect_task ADD COLUMN user_id INTEGER')
-        if 'owner_user_id' not in table_column_names['robot']:
-            ddl_statements.append('ALTER TABLE robot ADD COLUMN owner_user_id INTEGER')
-        table_names = set(inspector.get_table_names())
-        if 'robot_patrol_task' in table_names:
-            robot_patrol_columns = {column['name'] for column in inspector.get_columns('robot_patrol_task')}
+        if 'organization' not in table_column_names[users_table]:
+            ddl_statements.append(f'ALTER TABLE `{users_table}` ADD COLUMN organization VARCHAR(120)')
+        if 'user_id' not in table_column_names[tasks_table]:
+            ddl_statements.append(f'ALTER TABLE `{tasks_table}` ADD COLUMN user_id INTEGER')
+        if 'owner_user_id' not in table_column_names[robots_table]:
+            ddl_statements.append(f'ALTER TABLE `{robots_table}` ADD COLUMN owner_user_id INTEGER')
+        if patrol_tasks_table:
+            robot_patrol_columns = {column['name'] for column in inspector.get_columns(patrol_tasks_table)}
             if 'current_waypoint_index' not in robot_patrol_columns:
-                ddl_statements.append('ALTER TABLE robot_patrol_task ADD COLUMN current_waypoint_index INTEGER NOT NULL DEFAULT 0')
-        if 'idx_detect_task_user_id' not in table_index_names['detect_task']:
-            ddl_statements.append('CREATE INDEX idx_detect_task_user_id ON detect_task (user_id)')
-        if 'idx_robot_owner_user_id' not in table_index_names['robot']:
-            ddl_statements.append('CREATE INDEX idx_robot_owner_user_id ON robot (owner_user_id)')
+                ddl_statements.append(
+                    f'ALTER TABLE `{patrol_tasks_table}` ADD COLUMN current_waypoint_index INTEGER NOT NULL DEFAULT 0'
+                )
+
+        detect_task_user_index_names = {'idx_detect_task_user_id', 'idx_detection_tasks_user_id'}
+        robot_owner_index_names = {'idx_robot_owner_user_id', 'idx_robots_owner_user_id'}
+
+        if not (table_index_names[tasks_table] & detect_task_user_index_names):
+            ddl_statements.append(f'CREATE INDEX idx_detection_tasks_user_id ON `{tasks_table}` (user_id)')
+        if not (table_index_names[robots_table] & robot_owner_index_names):
+            ddl_statements.append(f'CREATE INDEX idx_robots_owner_user_id ON `{robots_table}` (owner_user_id)')
 
         if not ddl_statements:
             return

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 import time
 
 from api.stats_data_helpers import query_hotspot_source_rows
-from ml.algorithm import build_hotspot_forecast
+from ml.hotspot_forecasting import build_hotspot_forecast
 
 
 def _query_rows_with_fallback(lookback_days, now, current_user, is_admin_checker, logger=None):

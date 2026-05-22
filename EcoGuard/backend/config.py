@@ -35,8 +35,9 @@ class Config:
         "pool_recycle": 280,
     }
 
-    UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
-    RESULT_DIR = os.path.join(BASE_DIR, "static", "results")
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+    UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
+    RESULT_DIR = os.path.join(STATIC_DIR, "results")
     LOG_DIR = os.path.join(BASE_DIR, "logs")
 
     YOLO_MODEL_PATH = os.getenv(

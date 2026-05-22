@@ -65,7 +65,8 @@ onMounted(() => {
           </div>
           <div class="field-block">
             <label for="organization">所属单位</label>
-            <input id="organization" v-model.trim="form.organization" type="text" maxlength="120" required placeholder="例如：XX 环卫中心">
+            <input id="organization" v-model.trim="form.organization" type="text" maxlength="120" required
+              placeholder="例如：XX 环卫中心">
           </div>
           <div class="field-block">
             <label for="password">密码</label>
@@ -77,18 +78,15 @@ onMounted(() => {
           </div>
           <div class="field-block">
             <label for="security_code">安全码（用于后续身份校验）</label>
-            <input id="security_code" v-model.trim="form.security_code" type="password" minlength="4" maxlength="32" required>
+            <input id="security_code" v-model.trim="form.security_code" type="password" minlength="4" maxlength="32"
+              required>
           </div>
           <div v-if="captcha.enabled" class="field-block">
             <label for="captcha_text">图形验证码</label>
             <div class="captcha-row">
-              <input id="captcha_text" v-model.trim="form.captcha_text" type="text" maxlength="8" required placeholder="请输入验证码">
-              <img
-                v-if="captcha.image_data"
-                :src="captcha.image_data"
-                alt="captcha"
-                class="captcha-image"
-              >
+              <input id="captcha_text" v-model.trim="form.captcha_text" type="text" maxlength="8" required
+                placeholder="请输入验证码">
+              <img v-if="captcha.image_data" :src="captcha.image_data" alt="captcha" class="captcha-image">
               <button type="button" class="captcha-refresh" :disabled="captchaLoading" @click="loadCaptcha">
                 {{ captchaLoading ? '加载中...' : '刷新' }}
               </button>

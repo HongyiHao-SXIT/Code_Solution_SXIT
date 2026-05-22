@@ -1,9 +1,3 @@
-"""Compatibility entrypoint for web blueprint.
-
-Keep `from web.pages import web_bp` stable while route and helper code lives
-in dedicated modules.
-"""
-
 from .blueprint import web_bp
 
 # Import side effects: register hooks and routes on `web_bp`.
