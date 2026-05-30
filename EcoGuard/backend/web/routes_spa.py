@@ -15,10 +15,6 @@ from .services_spa import build_not_found_payload, can_delete_result_for_page, i
 @web_bp.route('/users')
 @page_login_required
 def show_protected_spa_page(**_route_params):
-    if request.path == '/users':
-        current_user = _get_current_user()
-        if not _is_admin_user(current_user):
-            return redirect('/robot')
     return _render_main_spa()
 
 

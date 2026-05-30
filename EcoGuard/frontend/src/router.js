@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ensureSession } from './stores/session'
-import { pushFlash } from './stores/session'
 
 const HomePage = () => import('./views/HomePage.vue')
 const LoginPage = () => import('./views/LoginPage.vue')
@@ -22,7 +21,7 @@ const routes = [
   { path: '/result/:id', name: 'result-detail', component: ResultDetailPage, meta: { requiresAuth: true, title: '任务详情' } },
   { path: '/robot', name: 'robot-admin', component: RobotAdminPage, meta: { requiresAuth: true, title: '机器人管理' } },
   { path: '/robot/:id', name: 'robot-control', component: RobotControlPage, meta: { requiresAuth: true, title: '机器人控制' } },
-  { path: '/users', name: 'user-admin', component: UserAdminPage, meta: { requiresAuth: true, requiresAdmin: true, title: '用户管理' } },
+  { path: '/users', name: 'user-admin', component: UserAdminPage, meta: { requiresAuth: true, title: '个人中心' } },
   { path: '/train', name: 'train', component: TrainPage, meta: { requiresAuth: true, title: '训练模型' } },
 ]
 
@@ -46,11 +45,6 @@ router.beforeEach(async (to) => {
 
   if (to.meta.guestOnly && user) {
     return { name: 'home' }
-  }
-
-  if (to.meta.requiresAdmin && user?.role !== 'admin') {
-    pushFlash('仅管理员可访问用户管理页面', 'error')
-    return { name: 'robot-admin' }
   }
 
   document.title = `${to.meta.title || 'EcoGuard'} - TrashDet`

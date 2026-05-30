@@ -3,6 +3,7 @@
 #include "Robot_arm.hpp"
 #include "PS2/PS2_CTL.hpp"
 #include "PC_BLE/PC_BLE_CTL.hpp"
+#include "WIFI/WIFI_CTL.hpp"
 
 Buzzer_t buzzer_obj;
 Button_t key_obj;
@@ -10,6 +11,7 @@ Led_t led_obj;
 LeArm_t arm;
 PS2_CTL ps2;
 PC_BLE_CTL pc_ble_obj;
+WIFI_CTL wifi_obj;
 
 uint8_t mode_flag = 0;
 uint8_t button_2_flag = 0;
@@ -34,6 +36,10 @@ void button_change_mode(uint8_t id,  ButtonEventIDEnum event)
         // 脱机模式
         mode_flag = 3;
         led_obj.blink(50, 50, 0);
+      }else if(mode_flag == 3){
+        // WiFi模式
+        mode_flag = 4;
+        led_obj.blink(100, 900, 0);
       }else{
         // APP模式
         mode_flag = 0;
@@ -68,6 +74,7 @@ void setup() {
   
   ps2.init();
   pc_ble_obj.init(1); // 0：选择PC控制模式
+  wifi_obj.init(&pc_ble_obj);
 
   ps2.init();
   delay(100);
@@ -96,6 +103,9 @@ void loop() {
         arm.action_run(17,1);
         button_2_flag = 0;
       }
+      break;
+    case 4: // WiFi模式
+      wifi_obj.task(&arm, &led_obj, &buzzer_obj);
       break;
     default:
       break;

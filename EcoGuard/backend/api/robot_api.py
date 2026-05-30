@@ -3,6 +3,7 @@ from datetime import datetime
 from threading import Lock
 
 from flask import Blueprint, jsonify, request, session
+from api.detect_helpers import lookup_address
 
 from api.robot_helpers import (
     COMMAND_ALIASES,
@@ -46,6 +47,8 @@ logger = logging.getLogger(__name__)
 PATROL_ARRIVAL_THRESHOLD_M = 8.0
 _ROBOT_REALTIME_SNAPSHOT = {}
 _ROBOT_REALTIME_LOCK = Lock()
+_ROBOT_ADDRESS_CACHE = {}
+_ROBOT_ADDRESS_CACHE_LOCK = Lock()
 
 
 def _update_robot_realtime_snapshot(robot):
@@ -82,6 +85,26 @@ def _to_int_or_none(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_robot_address(lat, lng):
+    normalized_lat = _to_float_or_none(lat)
+    normalized_lng = _to_float_or_none(lng)
+    if normalized_lat is None or normalized_lng is None:
+        return None
+    if not (-90.0 <= normalized_lat <= 90.0 and -180.0 <= normalized_lng <= 180.0):
+        return None
+
+    cache_key = (round(normalized_lat, 5), round(normalized_lng, 5))
+    with _ROBOT_ADDRESS_CACHE_LOCK:
+        cached = _ROBOT_ADDRESS_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    resolved = lookup_address(cache_key[0], cache_key[1])
+    with _ROBOT_ADDRESS_CACHE_LOCK:
+        _ROBOT_ADDRESS_CACHE[cache_key] = resolved
+    return resolved
 
 
 def _build_realtime_payload(robot, payload, default_status=None):
@@ -516,6 +539,31 @@ def remove_robot(robot_id):
     if commit_error:
         return commit_error
     return _json_ok()
+
+
+@robot_bp.route('/address', methods=['GET'])
+def get_robot_address():
+    current_user, auth_error = _require_ui_user()
+    if auth_error:
+        return auth_error
+    assert current_user is not None
+
+    lat = _to_float_or_none(request.args.get('lat'))
+    lng = _to_float_or_none(request.args.get('lng'))
+    if lat is None or lng is None:
+        return _json_error('请提供有效的经纬度参数', 400)
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        return _json_error('坐标超出有效范围', 400)
+
+    address = _resolve_robot_address(lat, lng)
+    if not address:
+        return _json_error('地址解析失败', 500)
+
+    return _json_ok({
+        'address': address,
+        'lat': lat,
+        'lng': lng,
+    })
 
 
 @robot_bp.route('/navigate', methods=['POST'])

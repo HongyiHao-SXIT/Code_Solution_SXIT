@@ -9,9 +9,11 @@ except Exception:
 
 
 DEFAULT_FORECAST_DAYS = 1
-DEFAULT_GRID_SIZE = 0.01
+DEFAULT_GRID_SIZE = 0.001
 DEFAULT_LOOKBACK_DAYS = 30
 DEFAULT_TOP_K = 6
+DEFAULT_MIN_CONFIDENCE = 0.15
+DEFAULT_MIN_CONFIDENCE_DETECTIONS = 3
 
 
 def _created_at_to_datetime(value):
@@ -152,7 +154,13 @@ def _build_hotspot_forecast_legacy(records, lookback_days, grid_size, top_k, for
     ]
     scored_cells.sort(key=lambda item: (item['predicted_count'], item['recent_7_avg'], item['total_detections']), reverse=True)
 
-    top_cells = scored_cells[:top_k]
+    confidence_filtered = [
+        item for item in scored_cells
+        if _passes_confidence_filter(item, lookback_days)
+    ]
+    candidate_cells = confidence_filtered if confidence_filtered else scored_cells
+
+    top_cells = candidate_cells[:top_k]
     max_raw_score = max((item['raw_score'] for item in top_cells), default=0.0)
     hotspots = []
     for index, item in enumerate(top_cells, start=1):
@@ -166,6 +174,7 @@ def _build_hotspot_forecast_legacy(records, lookback_days, grid_size, top_k, for
             'risk_score': risk_score,
             'recent_count': item['today_count'],
             'active_days': item['active_days'],
+            'confidence': round(item['confidence'], 3),
             'task_count': item['task_count'],
             'dominant_labels': item['dominant_labels'],
             'last_seen_at': item['last_seen_at'].isoformat() if item['last_seen_at'] else None,
@@ -198,23 +207,28 @@ def build_hotspot_forecast(records, lookback_days=DEFAULT_LOOKBACK_DAYS, grid_si
     normalized_top_k = max(1, int(top_k or DEFAULT_TOP_K))
     normalized_horizon = max(1, int(forecast_days or DEFAULT_FORECAST_DAYS))
     normalized_grid_size = max(0.001, float(grid_size or DEFAULT_GRID_SIZE))
-    payload = _build_hotspot_forecast_via_service(
+    payload = _build_hotspot_forecast_legacy(
         records=records,
         lookback_days=normalized_lookback,
-        top_k=normalized_top_k,
         grid_size=normalized_grid_size,
+        top_k=normalized_top_k,
         forecast_days=normalized_horizon,
     )
-    if payload is not None:
+    if payload.get('hotspots'):
         return payload
 
-    return _build_hotspot_forecast_legacy(
+    # Keep service path only as a fallback for sparse/edge data.
+    service_payload = _build_hotspot_forecast_via_service(
         records=records,
         lookback_days=normalized_lookback,
-        grid_size=normalized_grid_size,
         top_k=normalized_top_k,
+        grid_size=normalized_grid_size,
         forecast_days=normalized_horizon,
     )
+    if service_payload is not None:
+        return service_payload
+
+    return payload
 
 
 def _aggregate_grid_cells(records, lookback_days, grid_size, as_of_day):
@@ -251,6 +265,10 @@ def _aggregate_grid_cells(records, lookback_days, grid_size, as_of_day):
         center_lng = round(grid_lng + (grid_size / 2.0), 6)
         cell = cells.setdefault(grid_id, {
             'grid_id': grid_id,
+            'sum_lat': 0.0,
+            'sum_lng': 0.0,
+            'count': 0,
+            'weight_total': 0.0,
             'center_lat': center_lat,
             'center_lng': center_lng,
             'daily_counts': defaultdict(int),
@@ -263,6 +281,11 @@ def _aggregate_grid_cells(records, lookback_days, grid_size, as_of_day):
         cell['label_counter'].update(labels)
         cell['task_count'] += max(task_count, 0)
         cell['total_detections'] += detection_count
+        weight = max(float(detection_count), 1.0)
+        cell['sum_lat'] += float(latitude) * weight
+        cell['sum_lng'] += float(longitude) * weight
+        cell['count'] += 1
+        cell['weight_total'] += weight
         if cell['last_seen_at'] is None or created_at > cell['last_seen_at']:
             cell['last_seen_at'] = created_at
 
@@ -275,37 +298,59 @@ def _score_grid_cell(cell, as_of_day, lookback_days, forecast_days):
     recent_3_avg = _average(counts[-3:])
     recent_7_avg = _average(counts[-7:])
     overall_avg = _average(counts)
+    wma_3 = _weighted_moving_average(counts, 3)
+    wma_7 = _weighted_moving_average(counts, 7)
+    wma_14 = _weighted_moving_average(counts, 14)
     today_count = counts[-1] if counts else 0
     previous_3_avg = _average(counts[-6:-3]) if len(counts) >= 6 else 0.0
     weekday_baseline = _weekday_average(cell['daily_counts'], as_of_day)
     active_days = sum(1 for value in counts if value > 0)
+    confidence = float(active_days) / float(max(lookback_days, 1))
     recency_days = (as_of_day - cell['last_seen_at'].date()).days if cell['last_seen_at'] else lookback_days
     recency_factor = 1.0 / (1.0 + max(recency_days, 0))
     momentum = recent_3_avg - previous_3_avg
+    horizon_factor = _smoothed_horizon_factor(forecast_days)
+
+    centroid_weight = float(cell.get('weight_total', 0.0) or 0.0)
+    if centroid_weight > 0:
+        centroid_lat = round(cell['sum_lat'] / centroid_weight, 6)
+        centroid_lng = round(cell['sum_lng'] / centroid_weight, 6)
+    elif cell.get('count', 0) > 0:
+        centroid_lat = round(cell['sum_lat'] / float(cell['count']), 6)
+        centroid_lng = round(cell['sum_lng'] / float(cell['count']), 6)
+    else:
+        centroid_lat = cell['center_lat']
+        centroid_lng = cell['center_lng']
 
     predicted_count = max(
         0.0,
         (
-            recent_3_avg * 0.38 +
-            recent_7_avg * 0.28 +
-            overall_avg * 0.18 +
-            weekday_baseline * 0.16 +
-            max(momentum, -recent_3_avg) * 0.25 +
-            today_count * 0.12 * recency_factor
-        ) * math.sqrt(forecast_days)
+            wma_3 * 0.48 +
+            wma_7 * 0.30 +
+            wma_14 * 0.22 +
+            max(momentum, -wma_3) * 0.20 +
+            weekday_baseline * 0.12 +
+            today_count * 0.10 * recency_factor
+        ) * horizon_factor * (0.65 + 0.35 * confidence)
     )
-    raw_score = predicted_count + (today_count * 0.35) + (recent_7_avg * 0.25) + (active_days / max(lookback_days, 1)) + recency_factor
+    raw_score = (
+        predicted_count * (0.70 + 0.30 * confidence)
+        + (today_count * 0.25)
+        + (recent_7_avg * 0.20)
+        + recency_factor
+    )
 
     return {
         'grid_id': cell['grid_id'],
-        'center_lat': cell['center_lat'],
-        'center_lng': cell['center_lng'],
+        'center_lat': centroid_lat,
+        'center_lng': centroid_lng,
         'predicted_count': predicted_count,
         'raw_score': raw_score,
         'today_count': today_count,
         'recent_7_avg': recent_7_avg,
         'overall_avg': overall_avg,
         'active_days': active_days,
+        'confidence': confidence,
         'task_count': cell['task_count'],
         'total_detections': cell['total_detections'],
         'dominant_labels': [label for label, _ in cell['label_counter'].most_common(3)],
@@ -349,11 +394,12 @@ def _build_empty_forecast_payload(grid_size, lookback_days, forecast_days):
 
 def _build_hotspot_reason(item):
     labels = '、'.join(item['dominant_labels']) if item['dominant_labels'] else '混合垃圾'
+    confidence_text = f"置信度 {round(item.get('confidence', 0.0) * 100)}%"
     if item['today_count'] > 0:
-        return f"近 24 小时仍有 {item['today_count']} 个垃圾目标，{labels}出现更集中。"
+        return f"近 24 小时仍有 {item['today_count']} 个垃圾目标，{labels}出现更集中（{confidence_text}）。"
     if item['recent_7_avg'] >= item['overall_avg']:
-        return f"近 7 天活跃度高于长期均值，{labels}在该区域复现概率较高。"
-    return f"该网格在历史窗口内持续有检测记录，建议优先巡检 {labels}。"
+        return f"近 7 天活跃度高于长期均值，{labels}在该区域复现概率较高（{confidence_text}）。"
+    return f"该网格在历史窗口内持续有检测记录，建议优先巡检 {labels}（{confidence_text}）。"
 
 
 def _build_recommendations(hotspots):
@@ -381,6 +427,33 @@ def _normalize_risk_score(raw_score, max_raw_score):
     if raw_score <= 0 or max_raw_score <= 0:
         return 0
     return min(100, max(30, int(round((raw_score / max_raw_score) * 100))))
+
+
+def _passes_confidence_filter(item, lookback_days):
+    confidence = float(item.get('confidence', 0.0) or 0.0)
+    total_detections = int(item.get('total_detections', 0) or 0)
+    if confidence >= DEFAULT_MIN_CONFIDENCE:
+        return True
+    if total_detections >= DEFAULT_MIN_CONFIDENCE_DETECTIONS:
+        return True
+    # 对于窗口较小的场景，允许略低置信度通过，避免全部被过滤。
+    return confidence >= (1.0 / float(max(lookback_days, 1)))
+
+
+def _weighted_moving_average(values, window):
+    if not values:
+        return 0.0
+    size = max(1, min(int(window), len(values)))
+    recent = list(values[-size:])
+    weights = list(range(1, size + 1))
+    weighted_sum = sum(value * weight for value, weight in zip(recent, weights))
+    return float(weighted_sum) / float(sum(weights))
+
+
+def _smoothed_horizon_factor(forecast_days):
+    horizon = max(1.0, float(forecast_days))
+    # 使用对数平滑预测跨度，避免 forecast_days 放大过快。
+    return 1.0 + (math.log1p(horizon) * 0.35)
 
 
 def _weekday_average(daily_counts, as_of_day):

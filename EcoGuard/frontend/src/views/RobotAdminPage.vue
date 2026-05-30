@@ -30,6 +30,10 @@ const MAP_PICK_POINT_LIMIT = 4
 const taskPickMode = ref('none')
 const taskAreaPoints = ref([])
 const taskPathPoints = ref([])
+const robotResolvedAddress = ref('')
+const robotAddressLoading = ref(false)
+const robotAddressError = ref('')
+const robotAddressCache = new Map()
 
 const markerMenu = reactive({
   visible: false,
@@ -68,6 +72,69 @@ const taskPickModeLabel = computed(() => {
   if (taskPickMode.value === 'path') return '路径规划'
   return '未开启'
 })
+const selectedRobotAddressKey = computed(() => {
+  if (!selectedRobot.value) return ''
+  const lat = Number(selectedRobot.value.lat)
+  const lng = Number(selectedRobot.value.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
+  return `${lat.toFixed(5)},${lng.toFixed(5)}`
+})
+
+function statusClass(status) {
+  const token = String(status || 'unknown')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+  return `status-${token || 'unknown'}`
+}
+
+async function loadSelectedRobotAddress() {
+  if (!selectedRobot.value) {
+    robotResolvedAddress.value = ''
+    robotAddressError.value = ''
+    robotAddressLoading.value = false
+    return
+  }
+
+  const lat = Number(selectedRobot.value.lat)
+  const lng = Number(selectedRobot.value.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    robotResolvedAddress.value = '暂无定位信息'
+    robotAddressError.value = ''
+    robotAddressLoading.value = false
+    return
+  }
+
+  const cacheKey = selectedRobotAddressKey.value
+  if (cacheKey && robotAddressCache.has(cacheKey)) {
+    robotResolvedAddress.value = robotAddressCache.get(cacheKey) || ''
+    robotAddressError.value = ''
+    robotAddressLoading.value = false
+    return
+  }
+
+  robotAddressLoading.value = true
+  robotAddressError.value = ''
+  try {
+    const payload = await getJson(`/api/robot/address?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+    const rawAddress = String(payload.address || '').trim()
+    const address = (/^not\s*found$/i.test(rawAddress) ? '' : rawAddress) || '未解析到详细地址'
+    if (cacheKey) robotAddressCache.set(cacheKey, address)
+    if (selectedRobotAddressKey.value === cacheKey) {
+      robotResolvedAddress.value = address
+    }
+  } catch (error) {
+    const fallback = `坐标：${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    if (selectedRobotAddressKey.value === cacheKey) {
+      robotResolvedAddress.value = fallback
+      robotAddressError.value = error.message || '地址解析失败'
+    }
+  } finally {
+    if (selectedRobotAddressKey.value === cacheKey) {
+      robotAddressLoading.value = false
+    }
+  }
+}
 
 function resetRobotForm() {
   deviceId.value = ''
@@ -346,11 +413,8 @@ function showMarkerMenu(robotId, event) {
   if (nativeEvent) {
     nativeEvent.preventDefault()
     nativeEvent.stopPropagation()
-    markerMenu.x = nativeEvent.clientX
-    markerMenu.y = nativeEvent.clientY
   }
-  markerMenu.robotId = String(robotId)
-  markerMenu.visible = true
+  openEditor(robotId, 'robot')
 }
 
 function syncRobotEditorFromSelected() {
@@ -806,6 +870,17 @@ watch(selectedRobotId, () => {
   loadPatrolTasks()
 })
 
+watch([selectedRobotAddressKey, editorVisible], ([addressKey, visible]) => {
+  if (!visible || !addressKey) {
+    if (!visible) {
+      robotAddressLoading.value = false
+      robotAddressError.value = ''
+    }
+    return
+  }
+  loadSelectedRobotAddress()
+}, { immediate: true })
+
 watch(editorMode, (mode) => {
   if (!editorVisible.value) return
   if (mode === 'task') {
@@ -862,14 +937,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="robot-admin-page">
     <div class="map-toolbar">
-      <div class="toolbar-title">机器人管理（右键地图机器人点编辑）</div>
+      <div class="toolbar-title">机器人任务部署</div>
       <div class="toolbar-row">
         <input v-model.trim="deviceId" class="input-control toolbar-input" placeholder="设备ID">
         <input v-model.trim="name" class="input-control toolbar-input" placeholder="名称">
         <button type="button" class="square-btn" @click="addRobot">添加机器人</button>
         <button type="button" class="square-btn" @click="loadRobots">刷新</button>
       </div>
-      <div class="toolbar-sub">双击地图可向当前选中机器人下发导航；右键机器人点打开编辑菜单。</div>
+      <div class="toolbar-sub">双击地图可向当前选中机器人下发导航；右键机器人点直接打开详情管理面板。</div>
     </div>
 
     <div id="robotMap" class="robot-map-full"></div>
@@ -884,11 +959,15 @@ onBeforeUnmount(() => {
 
     <div v-if="editorVisible && selectedRobot" class="editor-drawer">
       <div class="drawer-head">
-        <div>
+        <div class="drawer-identity">
           <div class="drawer-title">{{ selectedRobot.name || '-' }} #{{ selectedRobot.id }}</div>
           <div class="drawer-subtitle">设备ID：{{ selectedRobot.device_id || '-' }}</div>
+          <div class="drawer-meta-row">
+            <span class="status-chip" :class="statusClass(selectedRobot.status)">{{ selectedRobot.status || 'UNKNOWN' }}</span>
+            <span class="meta-chip">电量 {{ selectedRobot.battery ?? '-' }}%</span>
+          </div>
         </div>
-        <button type="button" class="square-btn" @click="closeEditor">关闭</button>
+        <button type="button" class="square-btn btn-ghost" @click="closeEditor">关闭</button>
       </div>
 
       <div class="drawer-mode-switch">
@@ -903,14 +982,26 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="editorMode === 'robot'" class="drawer-body">
+        <div class="robot-quick-grid">
+          <div class="quick-card">
+            <div class="quick-label">在线状态</div>
+            <div class="quick-value" :class="statusClass(selectedRobot.status)">{{ selectedRobot.status || 'UNKNOWN' }}</div>
+          </div>
+          <div class="quick-card quick-card-wide">
+            <div class="quick-label">当前位置</div>
+            <div class="quick-value quick-address-value">{{ robotAddressLoading ? '地址解析中...' : (robotResolvedAddress || '暂无定位信息') }}</div>
+            <div v-if="robotAddressError" class="quick-subvalue">{{ robotAddressError }}</div>
+          </div>
+        </div>
+
         <input v-model.trim="robotEditName" class="input-control" placeholder="机器人名称">
         <select v-model="robotEditStatus" class="input-control">
           <option v-for="status in ROBOT_STATUSES" :key="status" :value="status">{{ status }}</option>
         </select>
-        <div class="drawer-actions">
-          <button type="button" class="square-btn" @click="saveRobotProfile">保存机器人</button>
-          <button type="button" class="square-btn btn-delete" @click="deleteRobot(selectedRobot.id)">删除机器人</button>
-          <RouterLink class="square-btn" :to="`/robot/${selectedRobot.id}`">控制页面</RouterLink>
+        <div class="drawer-actions robot-actions">
+          <button type="button" class="square-btn robot-action-btn" @click="saveRobotProfile">保存机器人</button>
+          <button type="button" class="square-btn btn-delete robot-action-btn" @click="deleteRobot(selectedRobot.id)">删除机器人</button>
+          <RouterLink class="square-btn robot-action-btn" :to="`/robot/${selectedRobot.id}`">手动控制</RouterLink>
         </div>
       </div>
 
@@ -921,7 +1012,6 @@ onBeforeUnmount(() => {
           <button type="button" class="square-btn" :class="{ 'square-btn-active': taskPickMode === 'path' }"
             @click="startTaskPickMode('path')">地图选四点-路径</button>
           <button type="button" class="square-btn" @click="stopTaskPickMode">停止选点</button>
-          <button type="button" class="square-btn" @click="applyTextToMapPreview">文本预览</button>
         </div>
 
         <div class="task-map-hint">模式：{{ taskPickModeLabel }} ｜ 区域 {{ taskAreaPoints.length }}/{{ MAP_PICK_POINT_LIMIT
@@ -962,7 +1052,7 @@ onBeforeUnmount(() => {
             <div v-for="task in patrolTasks" :key="task.id" class="task-list-item">
               <div class="task-item-head">
                 <span class="task-item-name">{{ task.name }}</span>
-                <span class="task-item-status">{{ task.status }}</span>
+                <span class="task-item-status" :class="statusClass(task.status)">{{ task.status }}</span>
               </div>
               <div class="task-item-meta">创建时间：{{ task.created_at || '-' }}</div>
               <div class="task-item-actions">
@@ -983,10 +1073,18 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .robot-admin-page {
+  --panel-bg: rgba(255, 255, 255, 0.84);
+  --panel-border: rgba(255, 255, 255, 0.46);
+  --ink-strong: #13263d;
+  --ink-soft: #556579;
+  --brand: #0f8b8d;
+  --brand-deep: #136f80;
+  --accent: #f4a261;
   position: relative;
   width: 100%;
   height: calc(100vh - 120px);
   min-height: 640px;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
 }
 
 .map-toolbar {
@@ -995,18 +1093,21 @@ onBeforeUnmount(() => {
   left: 12px;
   z-index: 600;
   width: min(760px, calc(100% - 24px));
-  padding: 10px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), var(--panel-bg));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 18px 36px rgba(16, 37, 63, 0.18);
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .toolbar-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
-  color: #1f2937;
+  color: var(--ink-strong);
+  letter-spacing: 0.02em;
 }
 
 .toolbar-row {
@@ -1016,33 +1117,59 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-input {
-  min-height: 38px;
+  min-height: 40px;
 }
 
 .toolbar-sub {
   font-size: 12px;
-  color: #4b5563;
+  color: var(--ink-soft);
 }
 
 .robot-map-full {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 
 .square-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
+  min-height: 40px;
   min-width: 90px;
-  padding: 0 12px;
-  border-radius: 6px;
+  padding: 0 14px;
+  border-radius: 10px;
   text-decoration: none;
+  border: 1px solid transparent;
+  background: linear-gradient(140deg, var(--brand), var(--brand-deep));
+  color: #ffffff;
+  font-weight: 700;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.square-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow: 0 9px 18px rgba(15, 139, 141, 0.26);
+}
+
+.square-btn:active {
+  transform: translateY(0);
 }
 
 .square-btn-active {
-  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.55);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.66), 0 10px 20px rgba(19, 111, 128, 0.3);
+}
+
+.btn-ghost {
+  background: rgba(16, 36, 60, 0.08);
+  border-color: rgba(16, 36, 60, 0.14);
+  color: var(--ink-strong);
+}
+
+.btn-ghost:hover {
+  box-shadow: 0 10px 20px rgba(12, 37, 63, 0.14);
 }
 
 .marker-context-menu {
@@ -1050,10 +1177,11 @@ onBeforeUnmount(() => {
   z-index: 1000;
   display: grid;
   gap: 6px;
-  padding: 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(236, 247, 247, 0.95));
+  box-shadow: 0 18px 30px rgba(12, 37, 63, 0.2);
   min-width: 156px;
 }
 
@@ -1064,52 +1192,141 @@ onBeforeUnmount(() => {
   bottom: 12px;
   width: min(440px, calc(100% - 24px));
   z-index: 700;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.22);
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 252, 252, 0.95));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 22px 36px rgba(13, 40, 70, 0.26);
   display: grid;
   grid-template-rows: auto auto 1fr;
   overflow: hidden;
+  animation: drawer-in 0.26s ease;
 }
 
 .drawer-head {
-  padding: 10px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 12px;
+  border-bottom: 1px solid rgba(15, 36, 61, 0.08);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+}
+
+.drawer-identity {
+  display: grid;
+  gap: 4px;
 }
 
 .drawer-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
-  color: #111827;
+  color: var(--ink-strong);
 }
 
 .drawer-subtitle {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ink-soft);
+}
+
+.drawer-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-chip,
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.meta-chip {
+  background: rgba(15, 139, 141, 0.12);
+  color: #0d5f61;
 }
 
 .drawer-mode-switch {
-  padding: 8px 10px;
+  padding: 10px 12px;
   display: flex;
-  gap: 8px;
-  border-bottom: 1px solid #e5e7eb;
+  gap: 10px;
+  border-bottom: 1px solid rgba(15, 36, 61, 0.08);
 }
 
 .drawer-body {
-  padding: 10px;
+  padding: 12px;
   overflow: auto;
   display: grid;
+  gap: 10px;
+}
+
+.robot-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.quick-card-wide {
+  grid-column: span 2;
+}
+
+.quick-card {
+  border: 1px solid rgba(15, 36, 61, 0.08);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  display: grid;
+  gap: 4px;
+}
+
+.quick-label {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.quick-value {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-strong);
+}
+
+.quick-address-value {
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.quick-subvalue {
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.4;
 }
 
 .drawer-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.robot-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.robot-actions .square-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.robot-action-btn {
+  box-sizing: border-box;
+  height: 42px;
+  min-height: 42px;
+  line-height: 1;
 }
 
 .task-drawer-body {
@@ -1123,7 +1340,7 @@ onBeforeUnmount(() => {
 }
 
 .task-map-hint {
-  color: #4b5563;
+  color: var(--ink-soft);
   font-size: 12px;
 }
 
@@ -1132,7 +1349,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  color: #374151;
+  color: #304559;
   font-size: 12px;
   font-weight: 600;
 }
@@ -1180,10 +1397,10 @@ onBeforeUnmount(() => {
 }
 
 .task-list-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid rgba(15, 36, 61, 0.1);
+  border-radius: 12px;
   padding: 10px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.9);
   display: grid;
   gap: 6px;
 }
@@ -1198,7 +1415,7 @@ onBeforeUnmount(() => {
 .task-item-name {
   font-size: 13px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--ink-strong);
 }
 
 .task-item-status {
@@ -1206,12 +1423,10 @@ onBeforeUnmount(() => {
   padding: 2px 10px;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(16, 185, 129, 0.12);
-  color: #0f6f52;
 }
 
 .task-item-meta {
-  color: #6b7280;
+  color: var(--ink-soft);
   font-size: 12px;
 }
 
@@ -1219,6 +1434,46 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.status-online,
+.status-running {
+  background: rgba(16, 185, 129, 0.16);
+  color: #0d7d5b;
+}
+
+.status-offline,
+.status-paused,
+.status-planned {
+  background: rgba(148, 163, 184, 0.2);
+  color: #344557;
+}
+
+.status-error,
+.status-cancelled {
+  background: rgba(239, 68, 68, 0.18);
+  color: #a12424;
+}
+
+.status-done {
+  background: rgba(79, 70, 229, 0.16);
+  color: #3f3cbb;
+}
+
+.status-unknown {
+  background: rgba(15, 36, 61, 0.1);
+  color: #304559;
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @media (max-width: 980px) {
@@ -1233,6 +1488,18 @@ onBeforeUnmount(() => {
   .editor-drawer {
     top: 180px;
     width: calc(100% - 24px);
+  }
+
+  .robot-quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .robot-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-card-wide {
+    grid-column: span 1;
   }
 }
 </style>

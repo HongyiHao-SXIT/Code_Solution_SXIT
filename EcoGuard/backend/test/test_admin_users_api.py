@@ -59,10 +59,18 @@ class AdminUsersApiTestCase(unittest.TestCase):
         response = self.client.get('/api/web/admin/users')
         self.assertEqual(response.status_code, 401)
 
-    def test_non_admin_cannot_access_admin_users_api(self):
+    def test_non_admin_can_only_view_self_in_users_api(self):
         self._login('member_user')
         response = self.client.get('/api/web/admin/users')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertTrue(payload.get('ok'))
+        self.assertFalse(payload.get('can_manage'))
+        users = payload.get('users') or []
+        self.assertEqual(len(users), 1)
+        self.assertEqual(users[0].get('username'), 'member_user')
+        self.assertTrue(users[0].get('is_current_user'))
 
     def test_non_admin_cannot_create_user(self):
         self._login('member_user')
@@ -179,6 +187,28 @@ class AdminUsersApiTestCase(unittest.TestCase):
             'organization': '受限单位',
         })
         self.assertEqual(response.status_code, 403)
+
+    def test_non_admin_can_update_self_profile(self):
+        self._login('member_user')
+
+        response = self.client.post('/api/web/users/me/update', json={
+            'username': 'member_self_updated',
+            'organization': '个人中心单位',
+            'password': 'newpass123',
+            'confirm_password': 'newpass123',
+        })
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.get_json()
+        self.assertTrue(payload.get('ok'))
+        self.assertEqual(payload.get('user', {}).get('username'), 'member_self_updated')
+        self.assertEqual(payload.get('user', {}).get('organization'), '个人中心单位')
+
+        with self.app.app_context():
+            updated = User.query.filter_by(username='member_self_updated').first()
+            self.assertIsNotNone(updated)
+            assert updated is not None
+            self.assertTrue(updated.check_password('newpass123'))
 
     def test_admin_update_profile_rejects_duplicate_username(self):
         self._login('admin_root')

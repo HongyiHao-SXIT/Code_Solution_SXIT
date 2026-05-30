@@ -1,6 +1,7 @@
 #ifndef __PC_BLE_CTL_HPP_
 #define __PC_BLE_CTL_HPP_
 
+#include <Arduino.h>
 #include "../Robot_arm.hpp"
 
 #define LEARM_VERSION 0x01
@@ -75,13 +76,16 @@ private:
 		int8_t pitch;
 	}pose;
 
+	Stream* io_stream;
+
 	void unpack(void);
 	void packet_transmit(uint8_t* data, uint8_t len);
 	uint8_t transmit_data(const uint8_t* pdata, uint16_t size);
 
 
 public:
-	void init(int pc_ble_flag);
+	void init(int pc_ble_flag, Stream* stream = &Serial);
+	void set_stream(Stream* stream);
 	void PC_BLE_Task(LeArm_t* robot,Led_t* led,Buzzer_t* buzzer);
 };
 

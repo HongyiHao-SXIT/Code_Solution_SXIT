@@ -73,11 +73,30 @@ def _validate_admin_user_profile_input(
 @web_bp.route('/api/web/admin/users', methods=['GET'])
 @api_login_required
 def list_admin_users_json():
-    current_user, error_response = _require_admin_user()
-    if error_response:
-        return error_response
+    current_user = _get_current_user()
+    if not current_user:
+        return jsonify({'ok': False, 'message': '请先登录'}), 401
 
     current_user_id = getattr(current_user, 'id', None)
+    is_admin = _is_admin_user(current_user)
+
+    if not is_admin:
+        own_user = db.session.get(User, current_user_id)
+        if not own_user:
+            return jsonify({'ok': False, 'message': '当前用户不存在'}), 404
+
+        own_payload = _serialize_user_admin_row(own_user, current_user_id)
+        own_payload['is_self_scope'] = True
+        return jsonify({
+            'ok': True,
+            'can_manage': False,
+            'users': [own_payload],
+            'summary': {
+                'total': 1,
+                'admin_count': 1 if own_user.role == _ROLE_ADMIN else 0,
+                'user_count': 1 if own_user.role != _ROLE_ADMIN else 0,
+            },
+        })
 
     users = User.query.order_by(User.id.asc()).all()
     admin_count = sum(1 for item in users if item.role == _ROLE_ADMIN)
@@ -91,6 +110,42 @@ def list_admin_users_json():
             'admin_count': admin_count,
             'user_count': len(users) - admin_count,
         },
+    })
+
+
+@web_bp.route('/api/web/users/me/update', methods=['POST'])
+@api_login_required
+def update_current_user_profile_json():
+    current_user = _get_current_user()
+    if not current_user:
+        return jsonify({'ok': False, 'message': '请先登录'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    username = _normalize_secret(payload.get('username'))
+    organization = _normalize_secret(payload.get('organization'))
+    password = _normalize_secret(payload.get('password'))
+    confirm_password = _normalize_secret(payload.get('confirm_password'))
+
+    error_message, status_code = _validate_admin_user_profile_input(
+        username,
+        organization,
+        password,
+        confirm_password,
+        current_user_id=current_user.id,
+    )
+    if error_message:
+        return jsonify({'ok': False, 'message': error_message}), status_code
+
+    current_user.username = username
+    current_user.organization = organization
+    if password:
+        current_user.set_password(password)
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'message': '个人信息更新成功',
+        'user': _serialize_user(current_user),
     })
 
 

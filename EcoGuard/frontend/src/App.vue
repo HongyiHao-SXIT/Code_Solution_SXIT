@@ -15,9 +15,9 @@ const allNavItems = [
   { to: '/result', label: '检测结果', match: ['/result'] },
   { to: '/stats', label: '统计分析', match: ['/stats'] },
   { to: '/train', label: '继续训练', match: ['/train'] },
-  { to: '/users', label: '个人中心', match: ['/users'], adminOnly: true },
+  { to: '/users', label: '个人中心', match: ['/users'] },
 ]
-const navItems = computed(() => allNavItems.filter((item) => !item.adminOnly || authUser.value?.role === 'admin'))
+const navItems = computed(() => allNavItems)
 
 function isActive(matchers) {
   return matchers.some((item) => route.path === item || route.path.startsWith(`${item}/`))
@@ -39,7 +39,6 @@ async function logout() {
   <div class="layout-main" :class="{ 'layout-main-auth': isAuthPage }">
     <div v-if="!isAuthPage" class="layout-header">
       <div class="layout-header-left">
-        <div class="layout-brand-badge">EG</div>
         <div class="layout-nav">
           <RouterLink v-for="item in navItems" :key="item.to" :to="item.to" class="layout-nav-link"
             :class="{ active: isActive(item.match) }">

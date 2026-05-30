@@ -113,7 +113,7 @@ class RobotApiTestCase(unittest.TestCase):
         with self.app.app_context():
             robot = db.session.get(Robot, self.robot_id)
             assert robot is not None
-            self.assertEqual(robot.next_command, None)
+            self.assertEqual(robot.next_command, 'IDLE')
 
     def test_heartbeat_always_persists_position(self):
         first = self.client.post(

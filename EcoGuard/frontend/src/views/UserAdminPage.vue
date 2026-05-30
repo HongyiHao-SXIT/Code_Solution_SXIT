@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { getJson, postJson } from '../lib/api'
-import { pushFlash, sessionState } from '../stores/session'
+import { pushFlash, sessionState, setSessionUser } from '../stores/session'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -9,10 +9,16 @@ const updatingUserId = ref(null)
 const deletingUserId = ref(null)
 const editingUserId = ref(null)
 const savingProfileUserId = ref(null)
+const selfAssetsLoading = ref(false)
+const robotOpsLoadingId = ref(null)
+const patrolOpsLoadingId = ref(null)
 const editingRowName = ref('')
 const rows = ref([])
+const myRobots = ref([])
+const myPatrolTasks = ref([])
 const loadError = ref('')
 const canManage = ref(false)
+const selfSubmitting = ref(false)
 const summary = ref({
   total: 0,
   admin_count: 0,
@@ -35,9 +41,31 @@ const editForm = reactive({
   confirm_password: '',
 })
 
+const selfForm = reactive({
+  username: '',
+  organization: '',
+  password: '',
+  confirm_password: '',
+})
+
 const authUser = computed(() => sessionState.user)
 const hasRows = computed(() => rows.value.length > 0)
+const currentUserRow = computed(() => rows.value.find((row) => row.is_current_user) || rows.value[0] || null)
+const currentUsername = computed(() => {
+  const candidate = String(
+    currentUserRow.value?.username || selfForm.username || authUser.value?.username || '',
+  ).trim()
+  return candidate || '-'
+})
 const currentRoleText = computed(() => (authUser.value?.role === 'admin' ? '管理员' : '普通用户'))
+const pageTitle = computed(() => (canManage.value ? '账号与权限管理' : '个人信息管理'))
+const pageSubtitle = computed(() => (
+  canManage.value
+    ? '管理员模式：可查看并管理所有用户（接口：/api/web/admin/users）'
+    : '普通用户模式：仅管理当前登录账号信息'
+))
+const hasMyRobots = computed(() => myRobots.value.length > 0)
+const hasMyPatrolTasks = computed(() => myPatrolTasks.value.length > 0)
 
 function resetSummary() {
   summary.value = { total: 0, admin_count: 0, user_count: 0 }
@@ -45,6 +73,23 @@ function resetSummary() {
 
 function roleText(role) {
   return role === 'admin' ? '管理员' : '普通用户'
+}
+
+function patrolStatusText(status) {
+  const code = String(status || '').toUpperCase()
+  if (code === 'PLANNED') return '待执行'
+  if (code === 'RUNNING') return '执行中'
+  if (code === 'PAUSED') return '已暂停'
+  if (code === 'DONE') return '已完成'
+  if (code === 'CANCELLED') return '已取消'
+  return status || '-'
+}
+
+function formatDateTime(value) {
+  if (!value) return '-'
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return String(value)
+  return dt.toLocaleString('zh-CN', { hour12: false })
 }
 
 function resetCreateForm() {
@@ -56,6 +101,42 @@ function resetCreateForm() {
   createForm.role = 'user'
 }
 
+function resetSelfForm() {
+  selfForm.username = ''
+  selfForm.organization = ''
+  selfForm.password = ''
+  selfForm.confirm_password = ''
+}
+
+function syncSelfFormFromRow(row) {
+  if (!row) {
+    resetSelfForm()
+    return
+  }
+  selfForm.username = row.username || ''
+  selfForm.organization = row.organization || ''
+  selfForm.password = ''
+  selfForm.confirm_password = ''
+}
+
+async function loadSelfAssets() {
+  selfAssetsLoading.value = true
+  try {
+    const [robotPayload, taskPayload] = await Promise.all([
+      getJson('/api/robot/list'),
+      getJson('/api/robot/task/list'),
+    ])
+    myRobots.value = [...(robotPayload.robots || [])].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+    myPatrolTasks.value = [...(taskPayload.tasks || [])].sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+  } catch (error) {
+    myRobots.value = []
+    myPatrolTasks.value = []
+    pushFlash(error.message || '加载个人资产失败', 'error')
+  } finally {
+    selfAssetsLoading.value = false
+  }
+}
+
 async function loadUsers() {
   loading.value = true
   loadError.value = ''
@@ -65,6 +146,13 @@ async function loadUsers() {
     rows.value = [...(payload.users || [])].sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
     summary.value = payload.summary || { total: 0, admin_count: 0, user_count: 0 }
     editingUserId.value = null
+    if (!canManage.value) {
+      syncSelfFormFromRow(rows.value[0] || null)
+      await loadSelfAssets()
+    } else {
+      myRobots.value = []
+      myPatrolTasks.value = []
+    }
   } catch (error) {
     rows.value = []
     canManage.value = false
@@ -77,6 +165,78 @@ async function loadUsers() {
     pushFlash(error.message || '用户列表加载失败', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function deleteMyRobot(robot) {
+  if (!robot?.id) return
+  if (!window.confirm(`确认删除机器人 ${robot.name || robot.device_id || `#${robot.id}`} 吗？`)) return
+
+  robotOpsLoadingId.value = robot.id
+  try {
+    await postJson(`/api/robot/delete/${robot.id}`, {})
+    pushFlash('机器人已删除', 'success')
+    await loadUsers()
+  } catch (error) {
+    pushFlash(error.message || '删除机器人失败', 'error')
+  } finally {
+    robotOpsLoadingId.value = null
+  }
+}
+
+async function setMyPatrolTaskStatus(task, status) {
+  if (!task?.id) return
+  patrolOpsLoadingId.value = task.id
+  try {
+    await postJson(`/api/robot/task/update/${task.id}`, { status })
+    pushFlash(`任务状态已更新为${patrolStatusText(status)}`, 'success')
+    await loadSelfAssets()
+  } catch (error) {
+    pushFlash(error.message || '更新任务状态失败', 'error')
+  } finally {
+    patrolOpsLoadingId.value = null
+  }
+}
+
+async function deleteMyPatrolTask(task) {
+  if (!task?.id) return
+  if (!window.confirm(`确认删除巡检任务 ${task.name || `#${task.id}`} 吗？`)) return
+
+  patrolOpsLoadingId.value = task.id
+  try {
+    await postJson(`/api/robot/task/delete/${task.id}`, {})
+    pushFlash('巡检任务已删除', 'success')
+    await loadSelfAssets()
+  } catch (error) {
+    pushFlash(error.message || '删除巡检任务失败', 'error')
+  } finally {
+    patrolOpsLoadingId.value = null
+  }
+}
+
+async function saveCurrentUserProfile() {
+  if (canManage.value) {
+    pushFlash('管理员请在用户列表中编辑账号信息', 'warning')
+    return
+  }
+
+  selfSubmitting.value = true
+  try {
+    const payload = await postJson('/api/web/users/me/update', {
+      username: selfForm.username,
+      organization: selfForm.organization,
+      password: selfForm.password,
+      confirm_password: selfForm.confirm_password,
+    })
+    if (payload?.user) {
+      setSessionUser(payload.user)
+    }
+    pushFlash('个人信息已更新', 'success')
+    await loadUsers()
+  } catch (error) {
+    pushFlash(error.message || '更新个人信息失败', 'error')
+  } finally {
+    selfSubmitting.value = false
   }
 }
 
@@ -209,10 +369,11 @@ onMounted(loadUsers)
     <div class="panel-body user-admin-body">
       <section class="user-page-head" aria-label="页面头部">
         <div>
-          <h3 class="section-title">账号与权限管理</h3>
-          <p class="user-page-subtitle">数据来源：后端数据库 user 表（接口：/api/web/admin/users）</p>
+          <h3 class="section-title">{{ pageTitle }}</h3>
+          <p class="user-page-subtitle">{{ pageSubtitle }}</p>
         </div>
         <div class="head-right">
+          <span class="login-badge">当前用户：{{ currentUsername }}</span>
           <span class="login-badge">当前身份：{{ currentRoleText }}</span>
           <button type="button" class="btn-detail" @click="loadUsers">刷新数据</button>
         </div>
@@ -222,7 +383,7 @@ onMounted(loadUsers)
         <strong>加载失败：</strong>{{ loadError }}
       </div>
 
-      <section class="user-summary" aria-label="用户摘要">
+      <section v-if="canManage" class="user-summary" aria-label="用户摘要">
         <div class="summary-item">
           <div class="summary-label">用户总数</div>
           <div class="summary-value">{{ summary.total }}</div>
@@ -237,8 +398,8 @@ onMounted(loadUsers)
         </div>
       </section>
 
-      <section class="user-main-grid" aria-label="用户管理主体">
-        <div v-if="canManage" class="user-create card-surface" aria-label="创建用户">
+      <section v-if="canManage" class="user-main-grid" aria-label="用户管理主体">
+        <div class="user-create card-surface" aria-label="创建用户">
           <h3 class="section-title section-title-sm">创建新用户</h3>
           <form class="create-grid" @submit.prevent="createUser">
             <label class="field-block">
@@ -274,13 +435,6 @@ onMounted(loadUsers)
               </button>
             </div>
           </form>
-        </div>
-
-        <div v-else class="user-create card-surface" aria-label="只读提示">
-          <h3 class="section-title section-title-sm">当前为只读模式</h3>
-          <p class="user-page-subtitle" style="margin-top: 0;">
-            你正在查看后端 user 表数据，但当前账号不是管理员，因此不能新增、编辑、改角色或删除用户。
-          </p>
         </div>
 
         <div class="user-list card-surface" aria-label="用户列表">
@@ -341,6 +495,137 @@ onMounted(loadUsers)
         </div>
       </section>
 
+      <section v-else class="user-self-layout" aria-label="个人中心主体">
+        <div class="card-surface self-profile-card">
+          <div class="profile-card-head">
+            <span class="profile-avatar">{{ currentUsername.slice(0, 1).toUpperCase() }}</span>
+            <div class="profile-head-texts">
+              <h3 class="section-title section-title-sm">个人信息卡</h3>
+              <div class="profile-username">{{ currentUsername }}</div>
+              <div class="profile-meta">
+                <span class="profile-tag">{{ currentRoleText }}</span>
+                <span class="profile-tag">{{ currentUserRow?.organization || '未填写单位' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="user-page-subtitle" style="margin-top: 0;">
+            仅管理当前登录账号信息，保存后即时生效。
+          </p>
+
+          <form class="self-profile-form" @submit.prevent="saveCurrentUserProfile">
+            <label class="field-block">
+              <span>用户名</span>
+              <input v-model.trim="selfForm.username" maxlength="50" minlength="3" required>
+            </label>
+            <label class="field-block">
+              <span>所属单位</span>
+              <input v-model.trim="selfForm.organization" maxlength="120" required placeholder="例如：XX 环卫中心">
+            </label>
+            <label class="field-block">
+              <span>新密码（留空不修改）</span>
+              <input v-model="selfForm.password" type="password" minlength="6" placeholder="至少 6 位">
+            </label>
+            <label class="field-block">
+              <span>确认新密码</span>
+              <input v-model="selfForm.confirm_password" type="password" minlength="6" placeholder="再次输入新密码">
+            </label>
+            <div class="create-actions">
+              <button type="submit" :disabled="selfSubmitting">
+                {{ selfSubmitting ? '保存中...' : '保存我的信息' }}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card-surface self-assets-card">
+          <div class="assets-head">
+            <h3 class="section-title section-title-sm">我的机器人与任务</h3>
+            <button type="button" class="self-square-btn" :disabled="selfAssetsLoading" @click="loadSelfAssets">
+              {{ selfAssetsLoading ? '刷新中...' : '刷新' }}
+            </button>
+          </div>
+
+          <div class="self-overview-grid" v-if="currentUserRow">
+            <div class="overview-item">
+              <span class="overview-label">用户 ID</span>
+              <span class="overview-value">#{{ currentUserRow.id }}</span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">用户名</span>
+              <span class="overview-value">{{ currentUserRow.username || '-' }}</span>
+            </div>
+          </div>
+
+          <div class="asset-section">
+            <div class="asset-section-head">
+              <h4>我的机器人</h4>
+              <RouterLink to="/robot" class="self-square-btn">打开机器人管理</RouterLink>
+            </div>
+            <div v-if="selfAssetsLoading" class="page-loading">载入中...</div>
+            <div v-else-if="!hasMyRobots" class="empty-state">你还没有绑定机器人</div>
+            <ul v-else class="asset-list">
+              <li v-for="robot in myRobots" :key="`robot-${robot.id}`" class="asset-item">
+                <div class="asset-main">
+                  <div class="asset-title">{{ robot.name || '未命名机器人' }}</div>
+                  <div class="asset-meta">设备ID：{{ robot.device_id || '-' }} · 状态：{{ robot.status || '-' }}</div>
+                </div>
+                <div class="asset-actions">
+                  <RouterLink class="self-square-btn" :to="`/robot/${robot.id}`">进入控制</RouterLink>
+                  <button
+                    type="button"
+                    class="self-square-btn self-square-btn-danger"
+                    :disabled="robotOpsLoadingId === robot.id"
+                    @click="deleteMyRobot(robot)">
+                    {{ robotOpsLoadingId === robot.id ? '删除中...' : '删除' }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="asset-section">
+            <div class="asset-section-head">
+              <h4>我的巡检任务</h4>
+              <RouterLink to="/result" class="self-square-btn">查看检测任务</RouterLink>
+            </div>
+            <div v-if="selfAssetsLoading" class="page-loading">载入中...</div>
+            <div v-else-if="!hasMyPatrolTasks" class="empty-state">暂无巡检任务</div>
+            <ul v-else class="asset-list">
+              <li v-for="task in myPatrolTasks" :key="`task-${task.id}`" class="asset-item">
+                <div class="asset-main">
+                  <div class="asset-title">{{ task.name || `任务 #${task.id}` }}</div>
+                  <div class="asset-meta">状态：{{ patrolStatusText(task.status) }} · 机器人ID：#{{ task.robot_id }} · 创建：{{ formatDateTime(task.created_at) }}</div>
+                </div>
+                <div class="asset-actions">
+                  <button
+                    type="button"
+                    class="self-square-btn"
+                    :disabled="patrolOpsLoadingId === task.id || String(task.status || '').toUpperCase() === 'RUNNING'"
+                    @click="setMyPatrolTaskStatus(task, 'RUNNING')">
+                    运行
+                  </button>
+                  <button
+                    type="button"
+                    class="self-square-btn"
+                    :disabled="patrolOpsLoadingId === task.id || String(task.status || '').toUpperCase() === 'PAUSED'"
+                    @click="setMyPatrolTaskStatus(task, 'PAUSED')">
+                    暂停
+                  </button>
+                  <button
+                    type="button"
+                    class="self-square-btn self-square-btn-danger"
+                    :disabled="patrolOpsLoadingId === task.id"
+                    @click="deleteMyPatrolTask(task)">
+                    {{ patrolOpsLoadingId === task.id ? '处理中...' : '删除' }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <transition name="edit-modal-fade">
         <div v-if="editingUserId !== null" class="edit-modal-mask" @click.self="cancelEdit">
           <section class="edit-modal-card card-surface" aria-label="编辑用户信息卡片">
@@ -370,7 +655,7 @@ onMounted(loadUsers)
                 <button type="submit" :disabled="savingProfileUserId !== null">
                   {{ savingProfileUserId !== null ? '保存中...' : '保存修改' }}
                 </button>
-                <button type="button" class="btn-detail" :disabled="savingProfileUserId !== null" @click="cancelEdit">
+                <button type="button" :disabled="savingProfileUserId !== null" @click="cancelEdit">
                   取消
                 </button>
               </div>
@@ -464,6 +749,229 @@ onMounted(loadUsers)
   grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.5fr);
   gap: 12px;
   align-items: start;
+}
+
+.user-self-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.05fr) minmax(260px, 0.95fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.self-profile-card,
+.self-assets-card {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(20, 108, 88, 0.14);
+  background: linear-gradient(145deg, rgba(244, 252, 248, 0.92), rgba(233, 246, 239, 0.82));
+}
+
+.profile-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #125745;
+  border: 1px solid rgba(18, 110, 89, 0.25);
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(182, 230, 211, 0.95));
+}
+
+.profile-head-texts {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-username {
+  font-size: 14px;
+  font-weight: 700;
+  color: #184d42;
+}
+
+.profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #2c6257;
+  background: rgba(94, 157, 139, 0.18);
+}
+
+.self-profile-form {
+  display: grid;
+  gap: 10px;
+}
+
+.assets-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.asset-section {
+  border: 1px solid rgba(20, 108, 88, 0.14);
+  border-radius: 12px;
+  background: rgba(248, 253, 250, 0.76);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.asset-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.asset-section-head h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #184d42;
+}
+
+.asset-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.asset-item {
+  border-radius: 10px;
+  border: 1px solid rgba(20, 108, 88, 0.14);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.asset-main {
+  display: grid;
+  gap: 4px;
+}
+
+.asset-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #184d42;
+}
+
+.asset-meta {
+  font-size: 12px;
+  color: #58786f;
+  line-height: 1.45;
+}
+
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.self-square-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: linear-gradient(145deg, #158966, #136f80);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.self-square-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.02);
+  box-shadow: 0 8px 16px rgba(20, 99, 88, 0.22);
+}
+
+.self-square-btn:disabled {
+  opacity: 0.64;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.self-square-btn-danger {
+  background: linear-gradient(145deg, #bf4f45, #9f3f37);
+}
+
+.self-square-btn-danger:hover {
+  box-shadow: 0 8px 16px rgba(159, 63, 55, 0.24);
+}
+
+.self-overview-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.overview-item {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(20, 108, 88, 0.14);
+  background: linear-gradient(150deg, rgba(248, 253, 250, 0.94), rgba(239, 249, 244, 0.88));
+}
+
+.overview-label {
+  font-size: 11px;
+  color: #5f7c75;
+}
+
+.overview-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #184d42;
+}
+
+.self-tips {
+  border-radius: 10px;
+  padding: 10px;
+  border: 1px dashed rgba(27, 110, 88, 0.28);
+  background: rgba(246, 252, 249, 0.9);
+}
+
+.tip-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a5b4d;
+  margin-bottom: 4px;
+}
+
+.self-tips p {
+  margin: 0;
+  font-size: 12px;
+  color: #4d766d;
 }
 
 .user-create,
@@ -701,7 +1209,8 @@ onMounted(loadUsers)
 @media (max-width: 980px) {
 
   .user-summary,
-  .user-main-grid {
+  .user-main-grid,
+  .user-self-layout {
     grid-template-columns: 1fr;
   }
 
@@ -715,6 +1224,10 @@ onMounted(loadUsers)
 
   .user-col-actions {
     justify-content: flex-start;
+  }
+
+  .self-overview-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

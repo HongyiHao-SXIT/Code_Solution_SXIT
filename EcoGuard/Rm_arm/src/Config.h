@@ -72,6 +72,10 @@
 
 #define IO_BLE_CTL  25
 
+#define WIFI_AP_SSID "LeArm-AP"
+#define WIFI_AP_PASS "12345678"
+#define WIFI_TCP_PORT 5000
+
 /* 5V GND IO2 IO13 */
 #define IO13       13
 

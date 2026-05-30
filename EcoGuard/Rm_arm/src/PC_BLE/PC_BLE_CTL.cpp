@@ -2,14 +2,16 @@
 #include "string.h"
 #include "../Config.h"
 
-#define SERIAL_PC_BLE Serial
-
 uint8_t rx_dma_buf[128];
 uint8_t rx_fifo[256];
 
 uint8_t PC_BLE_CTL::transmit_data(const uint8_t* pdata, uint16_t size)
 {
-  return (uint8_t)SERIAL_PC_BLE.write(pdata , size);
+  if(io_stream == nullptr)
+  {
+    return 0;
+  }
+  return (uint8_t)io_stream->write(pdata , size);
 }
 
 void PC_BLE_CTL::packet_transmit(uint8_t* data, uint8_t len)
@@ -27,14 +29,16 @@ void PC_BLE_CTL::packet_transmit(uint8_t* data, uint8_t len)
 
 void PC_BLE_CTL::unpack(void)
 {
-  uint8_t data[MAX_PACKET_LENGTH];
-  size_t readlen = 0;
-  
   static uint8_t buffer_index = 0;
   uint8_t rec = 0;
-  while (SERIAL_PC_BLE.available() > 0) 
+  if(io_stream == nullptr)
   {
-    rec = SERIAL_PC_BLE.read();
+    return;
+  }
+
+  while (io_stream->available() > 0) 
+  {
+    rec = (uint8_t)io_stream->read();
     switch(packet_status)
     {
       case PACKET_HEADER_1:
@@ -86,10 +90,16 @@ void PC_BLE_CTL::unpack(void)
   }
 }
 
-void PC_BLE_CTL::init(int pc_ble_flag)
+void PC_BLE_CTL::set_stream(Stream* stream)
+{
+  io_stream = stream;
+}
+
+void PC_BLE_CTL::init(int pc_ble_flag, Stream* stream)
 {
   running_time = 200;
   unpack_successful = false;
+  io_stream = stream;
   pinMode(IO_BLE_CTL, OUTPUT);
   /* 控制蓝牙是否上电 */
   if(pc_ble_flag == 0) // PC控制

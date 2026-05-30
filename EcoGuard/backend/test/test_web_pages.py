@@ -73,13 +73,9 @@ class WebPagesTestCase(unittest.TestCase):
         }, follow_redirects=False)
         self.assertEqual(login_resp.status_code, 302)
 
-        for path in ['/', '/result', '/upload', '/stats', '/robot']:
+        for path in ['/', '/result', '/upload', '/stats', '/robot', '/users']:
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 200)
-
-        user_admin_resp = self.client.get('/users', follow_redirects=False)
-        self.assertEqual(user_admin_resp.status_code, 302)
-        self.assertIn('/robot', user_admin_resp.headers.get('Location', ''))
 
     def test_admin_can_access_users_page(self):
         login_resp = self.client.post('/login', data={

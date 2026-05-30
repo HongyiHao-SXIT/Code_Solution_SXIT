@@ -69,7 +69,7 @@ def apply_robot_fields(robot, payload, default_status=None):
 
 def take_next_command(robot):
     command = robot.next_command or 'IDLE'
-    robot.next_command = None
+    robot.next_command = 'IDLE'
     return command
 
 
