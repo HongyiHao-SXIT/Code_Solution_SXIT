@@ -8,6 +8,20 @@ from pathlib import Path
 from typing import List, Optional
 
 import requests
+from sim_common import (
+    COMMON_CMD_ALIASES,
+    CONTROL_COMMANDS,
+    append_nav_points,
+    clamp_lat,
+    clamp_lng,
+    extract_nav_route,
+    find_route_point_index,
+    heading_to_delta,
+    normalize_command,
+    normalize_nav_point,
+    normalize_server_base,
+    same_nav_point,
+)
 
 
 try:
@@ -76,32 +90,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
 TEXT_EXTENSIONS = {".txt", ".json", ".csv", ".yaml", ".yml", ".log"}
 TABLE_COLUMNS = ["标签", "置信度(0-1)", "x1", "y1", "x2", "y2"]
 
-CONTROL_COMMANDS = {
-    "FORWARD", "BACK", "LEFT", "RIGHT", "STOP",
-    "PICK_TRASH", "RESET", "PAUSE", "RESUME",
-    "SLOW_FORWARD", "FAST_FORWARD", "SPIN_LEFT", "SPIN_RIGHT",
-    "HOLD_POSITION", "CANCEL_NAVIGATION", "RETURN_HOME", "DOCK",
-}
-
-CMD_ALIASES = {
-    "f": "FORWARD",
-    "forward": "FORWARD",
-    "b": "BACK",
-    "back": "BACK",
-    "backward": "BACK",
-    "biede": "BACK",
-    "bide": "BACK",
-    "l": "LEFT",
-    "left": "LEFT",
-    "r": "RIGHT",
-    "right": "RIGHT",
-    "s": "STOP",
-    "stop": "STOP",
-    "pause": "PAUSE",
-    "resume": "RESUME",
-    "sf": "SLOW_FORWARD",
-    "ff": "FAST_FORWARD",
-}
+CMD_ALIASES = dict(COMMON_CMD_ALIASES)
 
 QT_HORIZONTAL = getattr(Qt, "Horizontal", Qt.Orientation.Horizontal)
 QT_ALIGN_CENTER = getattr(Qt, "AlignCenter", Qt.AlignmentFlag.AlignCenter)
@@ -133,19 +122,15 @@ class ClusterRobotConfig:
 
 
 def _normalize_server_base(raw: str) -> str:
-    base = (raw or "").strip()
-    if not base:
-        return ""
-    if "://" not in base:
-        base = f"http://{base}"
-    return base.rstrip("/")
+    return normalize_server_base(raw, default='')
 
 
 class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
     def __init__(self, server: str, device_id: str):
         super().__init__()
         self.setWindowTitle(f"EcoGuard SimRobot Qt 智能控制台 ({QT_BINDING})")
-        self.resize(1320, 820)
+        self.resize(1160, 720)
+        self.setMinimumSize(980, 620)
 
         self.current_folder: Optional[Path] = None
         self.current_file: Optional[Path] = None
@@ -183,8 +168,8 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(8, 8, 8, 8)
+        root_layout.setSpacing(8)
 
         config_box = QGroupBox("连接参数 / 位置信息")
         cfg_grid = QGridLayout(config_box)
@@ -243,7 +228,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
             "SIM_001,北区1号,30.500100,114.300100,北区主路\n"
             "SIM_002,北区2号,30.500300,114.300200,北区支路"
         )
-        self.cluster_config_edit.setMinimumHeight(95)
+        self.cluster_config_edit.setMinimumHeight(72)
         cluster_layout.addWidget(self.cluster_config_edit)
 
         cluster_btn_row = QHBoxLayout()
@@ -387,7 +372,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         self.image_preview = QLabel("图片预览区域")
         self.image_preview.setAlignment(QT_ALIGN_CENTER)
-        self.image_preview.setMinimumHeight(300)
+        self.image_preview.setMinimumHeight(220)
         preview_layout.addWidget(self.image_preview)
 
         right_layout.addWidget(preview_box)
@@ -416,12 +401,13 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMinimumHeight(110)
+        self.log_view.setMinimumHeight(82)
         right_layout.addWidget(self.log_view)
 
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 4)
+        splitter.setSizes([340, 760])
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("就绪")
@@ -528,7 +514,7 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                 border: 1px solid #d7dee8;
                 border-radius: 10px;
                 margin-top: 10px;
-                padding: 12px 10px 10px 10px;
+                padding: 10px 8px 8px 8px;
                 background: rgba(255, 255, 255, 0.9);
                 font-weight: 600;
             }
@@ -542,12 +528,12 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
                 border: 1px solid #cfd8e3;
                 border-radius: 8px;
                 background: #ffffff;
-                padding: 4px;
+                padding: 3px;
             }
             QPushButton {
                 border: 0;
                 border-radius: 8px;
-                padding: 7px 12px;
+                padding: 6px 10px;
                 color: #ffffff;
                 background: #2274a5;
                 font-weight: 600;
@@ -591,115 +577,31 @@ class SimRobotWorkbench(QMainWindow):  # type: ignore[misc]
         self.result_table.setItem(row, col, item)
 
     def _clamp_lat(self, value: float) -> float:
-        return max(-90.0, min(90.0, value))
+        return clamp_lat(value)
 
     def _clamp_lng(self, value: float) -> float:
-        return max(-180.0, min(180.0, value))
+        return clamp_lng(value)
 
     def _heading_to_delta(self, heading_deg: float, step: float) -> tuple[float, float]:
-        rad = math.radians(heading_deg)
-        dlat = math.cos(rad) * step
-        dlng = math.sin(rad) * step
-        return dlat, dlng
+        return heading_to_delta(heading_deg, step)
 
     def _normalize_command(self, raw: str) -> str:
-        cleaned = (raw or "").strip()
-        if not cleaned:
-            return ""
-        cmd = CMD_ALIASES.get(cleaned.lower(), cleaned.upper())
-        return cmd
+        return normalize_command(raw, aliases=CMD_ALIASES)
 
     def _normalize_nav_point(self, raw_point) -> Optional[tuple[float, float]]:
-        if isinstance(raw_point, dict):
-            lat_raw = raw_point.get("lat")
-            lng_raw = raw_point.get("lng")
-        elif isinstance(raw_point, (list, tuple)) and len(raw_point) >= 2:
-            lat_raw = raw_point[0]
-            lng_raw = raw_point[1]
-        else:
-            return None
-
-        if lat_raw is None or lng_raw is None:
-            return None
-
-        try:
-            lat = float(lat_raw)
-            lng = float(lng_raw)
-        except (TypeError, ValueError):
-            return None
-
-        if not math.isfinite(lat) or not math.isfinite(lng):
-            return None
-        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
-            return None
-        return (lat, lng)
+        return normalize_nav_point(raw_point)
 
     def _append_nav_points(self, raw_points, output: List[tuple[float, float]]):
-        if raw_points is None:
-            return
-
-        point = self._normalize_nav_point(raw_points)
-        if point is not None:
-            output.append(point)
-            return
-
-        if isinstance(raw_points, (list, tuple)):
-            for item in raw_points:
-                nested_point = self._normalize_nav_point(item)
-                if nested_point is not None:
-                    output.append(nested_point)
-                    continue
-                if isinstance(item, dict):
-                    for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
-                        self._append_nav_points(item.get(key), output)
-            return
-
-        if isinstance(raw_points, dict):
-            for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
-                self._append_nav_points(raw_points.get(key), output)
+        append_nav_points(raw_points, output)
 
     def _extract_nav_route(self, target, response_body) -> List[tuple[float, float]]:
-        route_points: List[tuple[float, float]] = []
-
-        if isinstance(target, dict):
-            for key in ("waypoints", "points", "path", "planned_path", "targets", "route"):
-                self._append_nav_points(target.get(key), route_points)
-        elif isinstance(target, (list, tuple)):
-            self._append_nav_points(target, route_points)
-
-        if isinstance(response_body, dict):
-            for key in (
-                "waypoints",
-                "points",
-                "path",
-                "planned_path",
-                "targets",
-                "target_list",
-                "route",
-                "patrol_path",
-                "navigation_points",
-            ):
-                self._append_nav_points(response_body.get(key), route_points)
-
-        normalized: List[tuple[float, float]] = []
-        for point in route_points:
-            if not normalized:
-                normalized.append(point)
-                continue
-            prev = normalized[-1]
-            if math.hypot(point[0] - prev[0], point[1] - prev[1]) > 1e-12:
-                normalized.append(point)
-
-        return normalized
+        return extract_nav_route(target, response_body)
 
     def _same_nav_point(self, p1: tuple[float, float], p2: tuple[float, float], tolerance: float = 1e-9) -> bool:
-        return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) <= tolerance
+        return same_nav_point(p1, p2, tolerance=tolerance)
 
     def _find_route_point_index(self, route: List[tuple[float, float]], point: tuple[float, float]) -> int:
-        for index, candidate in enumerate(route):
-            if self._same_nav_point(candidate, point, tolerance=max(NAV_ARRIVE_THRESHOLD * 1.2, 1e-9)):
-                return index
-        return -1
+        return find_route_point_index(route, point, tolerance=max(NAV_ARRIVE_THRESHOLD * 1.2, 1e-9))
 
     def _apply_route_navigation(self, route_points: List[tuple[float, float]]) -> bool:
         if not route_points:

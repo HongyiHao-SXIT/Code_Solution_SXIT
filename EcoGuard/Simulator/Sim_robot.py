@@ -6,6 +6,15 @@ import threading
 import time
 
 import requests
+from sim_common import (
+    COMMON_CMD_ALIASES,
+    CONTROL_COMMANDS,
+    clamp_lat,
+    clamp_lng,
+    heading_to_delta,
+    normalize_server_base,
+    resolve_control_command,
+)
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -24,34 +33,7 @@ _NAV_ARRIVE_THRESHOLD = 0.00003
 # 电量每次心跳消耗
 _BATTERY_DRAIN_PER_BEAT = 0.02
 
-# 服务器端支持的所有控制命令（与 robot_api.py 保持一致）
-CONTROL_COMMANDS = {
-    'FORWARD', 'BACK', 'LEFT', 'RIGHT', 'STOP',
-    'PICK_TRASH', 'RESET', 'PAUSE', 'RESUME',
-    'SLOW_FORWARD', 'FAST_FORWARD', 'SPIN_LEFT', 'SPIN_RIGHT',
-    'HOLD_POSITION', 'CANCEL_NAVIGATION', 'RETURN_HOME', 'DOCK',
-}
-
-# 终端别名 -> 服务器命令
-_CMD_ALIAS = {
-    'f':        'FORWARD',
-    'b':        'BACK',
-    'l':        'LEFT',
-    'r':        'RIGHT',
-    's':        'STOP',
-    'sf':       'SLOW_FORWARD',
-    'ff':       'FAST_FORWARD',
-    'sl':       'SPIN_LEFT',
-    'sr':       'SPIN_RIGHT',
-    'pick':     'PICK_TRASH',
-    'hold':     'HOLD_POSITION',
-    'home':     'RETURN_HOME',
-    'dock':     'DOCK',
-    'pause':    'PAUSE',
-    'resume':   'RESUME',
-    'reset':    'RESET',
-    'cancelnav': 'CANCEL_NAVIGATION',
-}
+_CMD_ALIAS = dict(COMMON_CMD_ALIASES)
 
 _HELP_TEXT = """
 ╔══════════════════════════════════════════════════════════╗
@@ -109,28 +91,7 @@ def _post_json(url, payload, timeout=5):
 
 
 def _normalize_server_url(raw):
-    server = (raw or '').strip()
-    if not server:
-        return 'http://127.0.0.1:5000'
-    if '://' not in server:
-        server = f'http://{server}'
-    return server.rstrip('/')
-
-
-def _clamp_lat(v):
-    return max(-90.0, min(90.0, v))
-
-
-def _clamp_lng(v):
-    return max(-180.0, min(180.0, v))
-
-
-def _heading_to_delta(heading_deg, step):
-    """将朝向角度（0=北，顺时针）和步长转换为 (dlat, dlng)。"""
-    rad = math.radians(heading_deg)
-    dlat = math.cos(rad) * step
-    dlng = math.sin(rad) * step
-    return dlat, dlng
+    return normalize_server_base(raw, default='http://127.0.0.1:5000')
 
 
 def _ts():
@@ -189,8 +150,8 @@ class RobotSimulator:
 
     def _set_pos(self, lat, lng):
         with self._lock:
-            self._lat = _clamp_lat(lat)
-            self._lng = _clamp_lng(lng)
+            self._lat = clamp_lat(lat)
+            self._lng = clamp_lng(lng)
 
     # ------------------------------------------------------------------
     # 启动 / 停止
@@ -297,10 +258,10 @@ class RobotSimulator:
         else:
             return
 
-        dlat, dlng = _heading_to_delta(heading, step)
+        dlat, dlng = heading_to_delta(heading, step)
         with self._lock:
-            self._lat = _clamp_lat(lat + dlat)
-            self._lng = _clamp_lng(lng + dlng)
+            self._lat = clamp_lat(lat + dlat)
+            self._lng = clamp_lng(lng + dlng)
 
     def _apply_navigation(self):
         """自动导航：每拍向目标靠近一步。"""
@@ -321,11 +282,11 @@ class RobotSimulator:
         # 朝目标角度移动
         target_heading = math.degrees(math.atan2(tlng - lng, tlat - lat)) % 360
         step = min(dist * _NAV_STEP_RATIO, _STEP_DEG * _FAST_MULTIPLIER)
-        dlat, dlng = _heading_to_delta(target_heading, step)
+        dlat, dlng = heading_to_delta(target_heading, step)
         with self._lock:
             self._heading = target_heading
-            self._lat = _clamp_lat(lat + dlat)
-            self._lng = _clamp_lng(lng + dlng)
+            self._lat = clamp_lat(lat + dlat)
+            self._lng = clamp_lng(lng + dlng)
 
     # ------------------------------------------------------------------
     # 心跳后台线程
@@ -647,7 +608,7 @@ def _interactive_loop(sim: RobotSimulator):
             continue
 
         # ── 控制命令（别名 + 完整命令名）──
-        server_cmd = _CMD_ALIAS.get(cmd) or (cmd.upper() if cmd.upper() in CONTROL_COMMANDS else None)
+        server_cmd = resolve_control_command(cmd, aliases=_CMD_ALIAS, commands=CONTROL_COMMANDS)
         if server_cmd:
             sim.send_control(server_cmd)
             continue

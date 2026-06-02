@@ -14,11 +14,10 @@ from api.train_helpers import (
     _job_lock,
     _job_state,
     _now_iso,
-    _parse_bool,
-    _parse_int,
     _run_training_job,
     _safe_extract_zip,
 )
+from api.parse_helpers import parse_bool, parse_int
 from api.train_route_services import (
     build_job_payload,
     build_job_state,
@@ -104,8 +103,8 @@ def start_training():
     epochs, batch, imgsz, device, resume, run_name = parse_training_options(
         request.form,
         job_id,
-        _parse_int,
-        _parse_bool,
+        parse_int,
+        parse_bool,
     )
 
     job_payload = build_job_payload(

@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import distinct, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.robot_api import HEARTBEAT_TIMEOUT, resolve_robot_status
+from api.robot_helpers import HEARTBEAT_TIMEOUT, resolve_robot_status
 from database.db import db
 from database.models import DetectItem, DetectTask, Robot
 
@@ -128,6 +128,8 @@ def persist_robot_status_updates(robots_to_update):
     except SQLAlchemyError as error:
         db.session.rollback()
         logger.warning('机器人在线状态回写失败: %s', error)
+
+
 def query_hotspot_source_rows(cutoff_time=None, current_user=None, is_admin_checker=None):
     is_admin = bool(is_admin_checker and is_admin_checker(current_user))
     current_user_id = getattr(current_user, 'id', None)

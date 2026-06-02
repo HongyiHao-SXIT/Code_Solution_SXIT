@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import L from 'leaflet'
+import FormField from '../components/FormField.vue'
 import { getJson, postJson } from '../lib/api'
 import { escapeHtml } from '../lib/escape'
 import { pushFlash } from '../stores/session'
@@ -147,8 +148,12 @@ onBeforeUnmount(() => {
           <div class="chart-wrap robot-control-stack">
             <img :src="cameraSrc" alt="camera" class="robot-camera">
             <div class="form-row">
-              <input v-model.trim="streamUrl" placeholder="摄像头流地址（例如 http://192.168.1.100:8080/stream）"
-                class="input-control">
+              <FormField
+                v-model.trim="streamUrl"
+                wrapper-class="field-inline"
+                control-class="input-control"
+                placeholder="摄像头流地址（例如 http://192.168.1.100:8080/stream）"
+              />
               <button type="button" @click="setStream">设置</button>
             </div>
             <div class="robot-cmd-grid">
@@ -157,7 +162,12 @@ onBeforeUnmount(() => {
                 :key="command" type="button" class="ctl-btn" @click="sendCommand(command)">{{ command }}</button>
             </div>
             <div class="form-row">
-              <input v-model.trim="customCmd" class="input-control" placeholder="自定义指令（如 RESET）">
+              <FormField
+                v-model.trim="customCmd"
+                wrapper-class="field-inline"
+                control-class="input-control"
+                placeholder="自定义指令（如 RESET）"
+              />
               <button type="button" @click="sendCommand(customCmd, '发送自定义指令')">发送指令</button>
             </div>
 
@@ -187,8 +197,18 @@ onBeforeUnmount(() => {
               <div class="robot-status-row">
                 <span class="label">导航</span>
                 <div class="robot-nav-inline">
-                  <input v-model.trim="navLat" class="input-control input-sm" placeholder="目标纬度">
-                  <input v-model.trim="navLng" class="input-control input-sm" placeholder="目标经度">
+                  <FormField
+                    v-model.trim="navLat"
+                    wrapper-class="field-inline"
+                    control-class="input-control input-sm"
+                    placeholder="目标纬度"
+                  />
+                  <FormField
+                    v-model.trim="navLng"
+                    wrapper-class="field-inline"
+                    control-class="input-control input-sm"
+                    placeholder="目标经度"
+                  />
                   <button id="btnSetNav" type="button" class="btn-sm" @click="sendNavigation">设置</button>
                 </div>
               </div>

@@ -13,6 +13,7 @@ from flask import (
 )
 from sqlalchemy.orm import selectinload
 
+from api.auth_helpers import get_session_user as _get_current_user, is_admin_user as _is_admin_user
 from api.robot_api import HEARTBEAT_TIMEOUT, resolve_robot_status
 from database.db import db
 from database.models import DetectItem, DetectTask, User
@@ -26,17 +27,6 @@ from .utils import _normalize_secret
 
 APP_TITLE = 'EcoGuard 垃圾拾捡机器人管理系统'
 DEFAULT_LOGIN_NEXT = '/'
-
-
-def _get_current_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return None
-    return db.session.get(User, user_id)
-
-
-def _is_admin_user(user):
-    return bool(user and getattr(user, 'role', '') == 'admin')
 
 
 def _find_user_by_username(username):
@@ -68,34 +58,40 @@ def _parse_page_number(raw_value):
     return page_number if page_number > 0 else 1
 
 
-def _query_latest_tasks(page_number, page_size=16, current_user=None):
-    query = DetectTask.query
-    if not _is_admin_user(current_user):
-        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
+def _scope_detect_task_query(query, current_user):
+    if _is_admin_user(current_user):
+        return query
+    return query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
 
-    return query.order_by(DetectTask.id.desc()).paginate(
+
+def _can_access_robot(user, robot):
+    if _is_admin_user(user):
+        return True
+    return getattr(robot, 'owner_user_id', None) == getattr(user, 'id', None)
+
+
+def _paginate_descending(query, order_column, page_number, page_size=16):
+    return query.order_by(order_column.desc()).paginate(
         page=page_number,
         per_page=page_size,
         error_out=False,
     )
+
+
+def _query_latest_tasks(page_number, page_size=16, current_user=None):
+    query = _scope_detect_task_query(DetectTask.query, current_user)
+    return _paginate_descending(query, DetectTask.id, page_number, page_size)
 
 
 def _query_latest_items(page_number, page_size=16, current_user=None):
     query = DetectItem.query.options(selectinload(cast(Any, DetectItem).task)).join(DetectTask, DetectItem.task_id == DetectTask.id)
-    if not _is_admin_user(current_user):
-        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
-
-    return query.order_by(DetectItem.id.desc()).paginate(
-        page=page_number,
-        per_page=page_size,
-        error_out=False,
-    )
+    query = _scope_detect_task_query(query, current_user)
+    return _paginate_descending(query, DetectItem.id, page_number, page_size)
 
 
 def _load_task_with_items(task_id, current_user=None):
     query = DetectTask.query.options(selectinload(cast(Any, DetectTask).items)).filter_by(id=task_id)
-    if not _is_admin_user(current_user):
-        query = query.filter(DetectTask.user_id == getattr(current_user, 'id', None))
+    query = _scope_detect_task_query(query, current_user)
     return query.first_or_404()
 
 
@@ -145,28 +141,15 @@ def _serialize_user(user):
     }
 
 
-def _serialize_flash_messages():
-    messages = get_flashed_messages(with_categories=True)
-    return [
-        {
-            'category': category,
-            'message': message,
-        }
-        for category, message in messages
-    ]
+def _build_display_location(task):
+    if not task:
+        return '-'
+    if task.latitude is not None and task.longitude is not None:
+        return f'{task.latitude}, {task.longitude}'
+    return task.location or '-'
 
 
-def _serialize_task(task):
-    payload = task.to_dict() if hasattr(task, 'to_dict') else {}
-    payload['display_location'] = (
-        f"{task.latitude}, {task.longitude}"
-        if task.latitude is not None and task.longitude is not None
-        else (task.location or '-')
-    )
-    return payload
-
-
-def _serialize_detect_item(item):
+def _serialize_detect_item_base(item):
     return {
         'id': item.id,
         'task_id': item.task_id,
@@ -180,26 +163,33 @@ def _serialize_detect_item(item):
     }
 
 
+def _serialize_flash_messages():
+    messages = get_flashed_messages(with_categories=True)
+    return [
+        {
+            'category': category,
+            'message': message,
+        }
+        for category, message in messages
+    ]
+
+
+def _serialize_task(task):
+    payload = task.to_dict() if hasattr(task, 'to_dict') else {}
+    payload['display_location'] = _build_display_location(task)
+    return payload
+
+
+def _serialize_detect_item(item):
+    return _serialize_detect_item_base(item)
+
+
 def _serialize_detect_item_row(item):
     task = item.task
-    display_location = '-'
-    if task:
-        display_location = (
-            f"{task.latitude}, {task.longitude}"
-            if task.latitude is not None and task.longitude is not None
-            else (task.location or '-')
-        )
+    display_location = _build_display_location(task)
 
     return {
-        'id': item.id,
-        'task_id': item.task_id,
-        'label': item.label,
-        'confidence': item.confidence,
-        'handle_state': item.handle_state,
-        'bbox': [item.x1, item.y1, item.x2, item.y2],
-        'frame_index': item.frame_index,
-        'snapshot_path': item.snapshot_path,
-        'captured_at': item.captured_at.isoformat() if item.captured_at else None,
+        **_serialize_detect_item_base(item),
         'source_type': getattr(task, 'source_type', None),
         'device_id': getattr(task, 'device_id', None),
         'task_status': getattr(task, 'status', None),
@@ -267,3 +257,19 @@ def page_login_required(view_func):
         return view_func(*args, **kwargs)
 
     return wrapper
+
+
+def _require_current_user():
+    current_user = _get_current_user()
+    if not current_user:
+        return None, (jsonify({'ok': False, 'message': '请先登录'}), 401)
+    return current_user, None
+
+
+def _require_admin_user():
+    current_user, error_response = _require_current_user()
+    if error_response:
+        return None, error_response
+    if not _is_admin_user(current_user):
+        return None, (jsonify({'ok': False, 'message': '只有管理员可以管理用户'}), 403)
+    return current_user, None

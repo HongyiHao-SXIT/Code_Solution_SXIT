@@ -5,6 +5,8 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from api.parse_helpers import parse_bool, parse_int
+
 try:
     from ultralytics import YOLO
 except ImportError:
@@ -32,20 +34,6 @@ def _is_allowed(filename, extensions):
     if not filename or '.' not in filename:
         return False
     return filename.rsplit('.', 1)[1].lower() in extensions
-
-
-def _parse_int(value, default_value, minimum=1, maximum=100000):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default_value
-    return max(minimum, min(parsed, maximum))
-
-
-def _parse_bool(value, default=False):
-    if value is None:
-        return default
-    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
 def _append_log(job_id, message):

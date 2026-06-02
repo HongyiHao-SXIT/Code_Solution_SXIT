@@ -1,13 +1,15 @@
 import logging
 import os
 import threading
-import time
 import uuid
 from datetime import datetime
 
 import requests
 from flask import current_app, jsonify, request
 
+from api.response_helpers import json_error as _json_error_impl, json_success as _json_success_impl
+from api.nominatim_helpers import rate_limit_nominatim
+from api.parse_helpers import parse_bool, parse_int, parse_optional_float
 from database.db import db
 from database.models import DetectItem, DetectTask
 from inference import yolo_detector as yolo_detector_module
@@ -35,12 +37,6 @@ _DEPENDENCY_INSTALL_HINTS = {
     'ultralytics': 'pip install ultralytics',
     'opencv-python': 'pip install opencv-python',
 }
-
-# Nominatim requires <= 1 request/second.
-_nominatim_lock = threading.Lock()
-_nominatim_last_call_ts = 0.0
-_NOMINATIM_MIN_INTERVAL = 1.1
-
 
 def get_detection_dependency_report():
     missing = []
@@ -104,37 +100,6 @@ def get_detection_runtime_error(require_video=False):
     if command_text:
         return f'{scenario}依赖未就绪，缺少 {missing_text}。可执行: {command_text}'
     return f'{scenario}依赖未就绪，缺少 {missing_text}。'
-
-
-def parse_optional_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_int(value, default_value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default_value
-
-
-def parse_bool(value, default_value=False):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {'1', 'true', 'yes', 'on'}:
-            return True
-        if normalized in {'0', 'false', 'no', 'off'}:
-            return False
-        return default_value
-    if isinstance(value, (int, float)):
-        return value != 0
-    return default_value
 
 
 def is_allowed_image(filename):
@@ -235,13 +200,11 @@ def fail_task(task, error):
 
 
 def json_error(message, status_code=500):
-    return jsonify({'ok': False, 'message': str(message)}), status_code
+    return _json_error_impl(str(message), status_code, message_key='message')
 
 
 def json_success(payload):
-    body = {'ok': True, 'status': 'success'}
-    body.update(payload)
-    return jsonify(body)
+    return _json_success_impl(payload)
 
 
 def parse_geo_from_form(form_data):
@@ -317,18 +280,6 @@ def _normalize_ingest_detection(raw_item):
         'confidence': confidence,
         'bbox': bbox,
     }
-
-
-def _nominatim_rate_limit():
-    global _nominatim_last_call_ts
-    with _nominatim_lock:
-        now = time.time()
-        wait_time = _NOMINATIM_MIN_INTERVAL - (now - _nominatim_last_call_ts)
-        if wait_time > 0:
-            time.sleep(wait_time)
-        _nominatim_last_call_ts = time.time()
-
-
 def lookup_address(lat, lng):
     if lat is None or lng is None:
         return '未知地点'
@@ -337,7 +288,7 @@ def lookup_address(lat, lng):
         return f'坐标： {lat}, {lng} (超出有效范围)'
 
     try:
-        _nominatim_rate_limit()
+        rate_limit_nominatim()
         url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}&zoom=10&addressdetails=1'
         headers = {
             'User-Agent': 'EcoGuard/2.0 (trash-detection-robot-system)'

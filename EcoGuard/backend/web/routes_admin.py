@@ -1,3 +1,5 @@
+from typing import Any
+
 from flask import jsonify, request
 
 from database.db import db
@@ -9,6 +11,7 @@ from .helpers import (
     _get_current_user,
     _is_admin_user,
     _normalize_secret,
+    _require_admin_user,
     _serialize_user,
     api_login_required,
 )
@@ -24,15 +27,6 @@ def _normalize_role(raw_role):
     if role not in {_ROLE_USER, _ROLE_ADMIN}:
         return None
     return role
-
-
-def _require_admin_user():
-    current_user = _get_current_user()
-    if not _is_admin_user(current_user):
-        return None, (jsonify({'ok': False, 'message': '只有管理员可以管理用户'}), 403)
-    return current_user, None
-
-
 def _count_admin_users():
     return User.query.filter_by(role=_ROLE_ADMIN).count()
 
@@ -115,7 +109,7 @@ def list_admin_users_json():
 
 @web_bp.route('/api/web/users/me/update', methods=['POST'])
 @api_login_required
-def update_current_user_profile_json():
+def update_current_user_profile_json() -> Any:
     current_user = _get_current_user()
     if not current_user:
         return jsonify({'ok': False, 'message': '请先登录'}), 401
@@ -152,9 +146,10 @@ def update_current_user_profile_json():
 @web_bp.route('/api/web/admin/users', methods=['POST'])
 @api_login_required
 def create_admin_user_json():
-    _, error_response = _require_admin_user()
+    current_user, error_response = _require_admin_user()
     if error_response:
         return error_response
+    assert current_user is not None
 
     payload = request.get_json(silent=True) or {}
     username = _normalize_secret(payload.get('username'))
@@ -194,6 +189,7 @@ def update_admin_user_role_json(user_id):
     current_user, error_response = _require_admin_user()
     if error_response:
         return error_response
+    assert current_user is not None
 
     payload = request.get_json(silent=True) or {}
     next_role = _normalize_role(payload.get('role'))
@@ -222,10 +218,11 @@ def update_admin_user_role_json(user_id):
 
 @web_bp.route('/api/web/admin/users/<int:user_id>/update', methods=['POST'])
 @api_login_required
-def update_admin_user_profile_json(user_id):
+def update_admin_user_profile_json(user_id) -> Any:
     current_user, error_response = _require_admin_user()
     if error_response:
         return error_response
+    assert current_user is not None
 
     target_user = db.get_or_404(User, user_id)
     if target_user.id == current_user.id:
@@ -266,6 +263,7 @@ def delete_admin_user_json(user_id):
     current_user, error_response = _require_admin_user()
     if error_response:
         return error_response
+    assert current_user is not None
 
     target_user = db.get_or_404(User, user_id)
 

@@ -1,20 +1,7 @@
 import logging
 import os
 import random
-
-try:
-    import numpy as np
-except ImportError:
-    np = None
-
-try:
-    import torch
-except ImportError:
-    torch = None
-except OSError:
-    # Handle Windows DLL dependency issues (e.g. missing VC++ runtime) gracefully.
-    torch = None
-    logging.warning("PyTorch import failed due to missing DLL dependencies. Seeding skips torch.")
+import importlib
 
 from flask import Flask
 from api.detect_helpers import log_detection_dependency_report
@@ -39,7 +26,24 @@ from api.train_api import train_bp
 
 
 def seed_everything(seed=42):
-    seed_random_state(seed=seed, np_module=np, torch_module=torch)
+    np_module = None
+    torch_module = None
+
+    # Import optional numeric backends lazily so app import is robust on minimal environments.
+    if os.getenv('ECOGUARD_ENABLE_NUMERIC_SEED', '0').strip().lower() in {'1', 'true', 'yes', 'on'}:
+        try:
+            np_module = importlib.import_module('numpy')
+        except Exception as error:
+            logging.warning('NumPy import failed. Seeding skips numpy. error=%s', error)
+
+        try:
+            torch_module = importlib.import_module('torch')
+        except OSError:
+            logging.warning('PyTorch import failed due to missing DLL dependencies. Seeding skips torch.')
+        except Exception as error:
+            logging.warning('PyTorch import failed. Seeding skips torch. error=%s', error)
+
+    seed_random_state(seed=seed, np_module=np_module, torch_module=torch_module)
 
 
 def ensure_bootstrap_admin(app):

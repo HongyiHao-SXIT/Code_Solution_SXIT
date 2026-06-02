@@ -3,6 +3,7 @@ from datetime import datetime
 from threading import Lock
 
 from flask import Blueprint, jsonify, request, session
+from api.auth_helpers import get_session_user as _get_session_user, is_admin_user as _is_admin_user
 from api.detect_helpers import lookup_address
 
 from api.robot_helpers import (
@@ -19,7 +20,6 @@ from api.robot_helpers import (
     _json_from_request,
     _json_ok,
     _normalize_command,
-    _parse_navigation_payload,
     apply_robot_fields,
     read_client_ip,
     resolve_robot_status,
@@ -214,19 +214,6 @@ def _overlay_realtime_snapshot(robot_item, snapshot, timeout_seconds):
         'lng': snapshot.get('target_lng'),
     }
     return merged
-
-
-def _get_session_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return None
-    return db.session.get(User, user_id)
-
-
-def _is_admin_user(user):
-    return bool(user and getattr(user, 'role', '') == 'admin')
-
-
 def _require_ui_user():
     user = _get_session_user()
     if not user:
@@ -369,20 +356,14 @@ def _sync_running_patrol_for_robot(robot):
         )
 
 
-@robot_bp.route('/heartbeat', methods=['POST'])
-def sync_heartbeat():
-    payload, payload_error = _json_from_request()
-    if payload_error is not None:
-        return payload_error
-    assert payload is not None
-
+def _sync_device_state(payload, default_status, dispatch_log_label, commit_action_text):
     robot, error_body, error_code = _find_robot_by_device_or_error(payload)
     if not robot:
         if error_body is not None and error_code is not None:
-            return error_body, error_code
-        return _json_error('设备未注册', 403)
+            return None, error_body, error_code
+        return None, *_json_error('设备未注册', 403)
 
-    apply_robot_fields(robot, payload, default_status='ONLINE')
+    apply_robot_fields(robot, payload, default_status=default_status)
 
     _sync_running_patrol_for_robot(robot)
     command = take_next_command(robot)
@@ -396,7 +377,8 @@ def sync_heartbeat():
         command = 'NAVIGATE'
     if command and command != 'IDLE':
         logger.info(
-            'Dispatch heartbeat command robot=%s command=%s target=(%s,%s)',
+            'Dispatch %s command robot=%s command=%s target=(%s,%s)',
+            dispatch_log_label,
             robot.id,
             command,
             getattr(robot, 'target_lat', None),
@@ -404,13 +386,12 @@ def sync_heartbeat():
         )
 
     _update_robot_realtime_snapshot(robot)
-    commit_error = _commit_or_error('同步心跳')
+    commit_error = _commit_or_error(commit_action_text)
     if commit_error:
-        return commit_error
+        return None, *commit_error
 
     remaining_waypoints = _build_running_waypoints_payload(running_task)
-
-    return _json_ok({
+    return {
         'robot_id': robot.id,
         'command': command,
         'target': {
@@ -418,7 +399,25 @@ def sync_heartbeat():
             'lng': robot.target_lng,
         },
         'waypoints': remaining_waypoints,
-    })
+    }, None, None
+
+
+@robot_bp.route('/heartbeat', methods=['POST'])
+def sync_heartbeat():
+    payload, payload_error = _json_from_request()
+    if payload_error is not None:
+        return payload_error
+    assert payload is not None
+
+    response_payload, error_body, error_code = _sync_device_state(
+        payload=payload,
+        default_status='ONLINE',
+        dispatch_log_label='heartbeat',
+        commit_action_text='同步心跳',
+    )
+    if error_body is not None and error_code is not None:
+        return error_body, error_code
+    return _json_ok(response_payload)
 
 
 @robot_bp.route('/status_update', methods=['POST'])
@@ -428,46 +427,15 @@ def sync_status():
         return payload_error
     assert payload is not None
 
-    robot, error_body, error_code = _find_robot_by_device_or_error(payload)
-    if not robot:
-        if error_body is not None and error_code is not None:
-            return error_body, error_code
-        return _json_error('设备未注册', 403)
-
-    apply_robot_fields(robot, payload)
-
-    _sync_running_patrol_for_robot(robot)
-    command = take_next_command(robot)
-    running_task = _get_running_patrol_task(robot.id)
-    if (
-        command == 'IDLE'
-        and running_task is not None
-        and getattr(robot, 'target_lat', None) is not None
-        and getattr(robot, 'target_lng', None) is not None
-    ):
-        command = 'NAVIGATE'
-    if command and command != 'IDLE':
-        logger.info(
-            'Dispatch status command robot=%s command=%s target=(%s,%s)',
-            robot.id,
-            command,
-            getattr(robot, 'target_lat', None),
-            getattr(robot, 'target_lng', None),
-        )
-
-    _update_robot_realtime_snapshot(robot)
-    commit_error = _commit_or_error('同步状态')
-    if commit_error:
-        return commit_error
-
-    remaining_waypoints = _build_running_waypoints_payload(running_task)
-
-    return _json_ok({
-        'robot_id': robot.id,
-        'command': command,
-        'target': {'lat': robot.target_lat, 'lng': robot.target_lng},
-        'waypoints': remaining_waypoints,
-    })
+    response_payload, error_body, error_code = _sync_device_state(
+        payload=payload,
+        default_status=None,
+        dispatch_log_label='status',
+        commit_action_text='同步状态',
+    )
+    if error_body is not None and error_code is not None:
+        return error_body, error_code
+    return _json_ok(response_payload)
 
 
 @robot_bp.route('/register', methods=['POST'])
@@ -578,10 +546,9 @@ def send_navigation():
         return access_error
     assert robot is not None
 
-    try:
-        latitude = float(payload.get('lat'))
-        longitude = float(payload.get('lng'))
-    except (TypeError, ValueError):
+    latitude = _to_float_or_none(payload.get('lat'))
+    longitude = _to_float_or_none(payload.get('lng'))
+    if latitude is None or longitude is None:
         return _json_error('导航参数格式错误', 400)
     if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
         return _json_error('导航坐标超出范围', 400)
@@ -723,9 +690,8 @@ def create_patrol_task():
         return payload_error
     assert payload is not None
 
-    try:
-        robot_id = int(payload.get('robot_id'))
-    except (TypeError, ValueError):
+    robot_id = _to_int_or_none(payload.get('robot_id'))
+    if robot_id is None:
         return _json_error('robot_id 参数错误', 400)
 
     robot = _get_robot_or_none(robot_id)
@@ -774,6 +740,7 @@ def list_patrol_tasks():
     current_user, auth_error = _require_ui_user()
     if auth_error:
         return auth_error
+    assert current_user is not None
 
     request_robot_id = None
     robot_id_arg = request.args.get('robot_id')
@@ -793,7 +760,11 @@ def list_patrol_tasks():
             return _json_error('无权限访问该机器人', 403)
         query = query.filter_by(robot_id=request_robot_id)
     elif not _is_admin_user(current_user):
-        owner_robot_ids = [item.id for item in Robot.query.filter_by(owner_user_id=current_user.id).all()]
+        owner_robot_ids = [
+            int(item.id)
+            for item in Robot.query.filter_by(owner_user_id=current_user.id).all()
+            if item is not None and getattr(item, 'id', None) is not None
+        ]
         if not owner_robot_ids:
             return _json_ok({'tasks': []})
         query = query.filter(RobotPatrolTask.robot_id.in_(owner_robot_ids))

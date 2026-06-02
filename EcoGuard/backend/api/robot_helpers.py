@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from flask import jsonify, request
+from flask import request
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.response_helpers import json_error as _json_error_impl, json_from_request as _json_from_request_impl, json_ok as _json_ok_impl
 from database.db import db
 from database.models import Robot
 
@@ -82,21 +83,15 @@ def resolve_robot_status(robot, now=None, timeout=HEARTBEAT_TIMEOUT):
 
 
 def _json_ok(payload=None, status_code=200):
-    body = {'ok': True}
-    if payload:
-        body.update(payload)
-    return jsonify(body), status_code
+    return _json_ok_impl(payload, status_code)
 
 
 def _json_error(message, status_code=400):
-    return jsonify({'ok': False, 'msg': message}), status_code
+    return _json_error_impl(message, status_code)
 
 
 def _json_from_request():
-    payload = request.get_json(silent=True)
-    if isinstance(payload, dict):
-        return payload, None
-    return None, _json_error('请求体必须是 JSON 对象', 400)
+    return _json_from_request_impl()
 
 
 def _get_robot_or_none(robot_id):

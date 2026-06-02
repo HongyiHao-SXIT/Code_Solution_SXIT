@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from flask import Blueprint, current_app, jsonify, request, session
 
+from api.auth_helpers import get_session_user as _get_session_user, is_admin_user as _is_admin_user
 from api.detect_helpers import (
     _HAS_CV2,
     _normalize_ingest_detection,
@@ -44,19 +45,6 @@ from database.models import DetectTask, Robot, User
 
 
 detect_bp = Blueprint('detect_bp', __name__)
-
-
-def _get_session_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return None
-    return db.session.get(User, user_id)
-
-
-def _is_admin_user(user):
-    return bool(user and getattr(user, 'role', '') == 'admin')
-
-
 def _resolve_task_owner_user_id(device_id=None):
     current_user = _get_session_user()
     if current_user:

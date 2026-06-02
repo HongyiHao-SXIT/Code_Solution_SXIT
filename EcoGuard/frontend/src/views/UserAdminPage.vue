@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import UserProfileFields from '../components/UserProfileFields.vue'
 import { getJson, postJson } from '../lib/api'
+import { validateUserProfileForm } from '../lib/formValidation'
 import { pushFlash, sessionState, setSessionUser } from '../stores/session'
 
 const loading = ref(false)
@@ -220,6 +222,15 @@ async function saveCurrentUserProfile() {
     return
   }
 
+  const validationError = validateUserProfileForm(selfForm, {
+    requirePassword: false,
+    allowEmptyPassword: true,
+  })
+  if (validationError) {
+    pushFlash(validationError, 'warning')
+    return
+  }
+
   selfSubmitting.value = true
   try {
     const payload = await postJson('/api/web/users/me/update', {
@@ -245,6 +256,17 @@ async function createUser() {
     pushFlash('当前账号只有查看权限，无法创建用户', 'warning')
     return
   }
+
+  const validationError = validateUserProfileForm(createForm, {
+    requireSecurityCode: true,
+    requirePassword: true,
+    requireRole: true,
+  })
+  if (validationError) {
+    pushFlash(validationError, 'warning')
+    return
+  }
+
   submitting.value = true
   try {
     await postJson('/api/web/admin/users', {
@@ -318,6 +340,15 @@ async function saveUserProfile() {
 
   const targetUserId = editingUserId.value
   if (!targetUserId) {
+    return
+  }
+
+  const validationError = validateUserProfileForm(editForm, {
+    requirePassword: false,
+    allowEmptyPassword: true,
+  })
+  if (validationError) {
+    pushFlash(validationError, 'warning')
     return
   }
 
@@ -402,33 +433,8 @@ onMounted(loadUsers)
         <div class="user-create card-surface" aria-label="创建用户">
           <h3 class="section-title section-title-sm">创建新用户</h3>
           <form class="create-grid" @submit.prevent="createUser">
-            <label class="field-block">
-              <span>用户名</span>
-              <input v-model.trim="createForm.username" maxlength="50" minlength="3" required>
-            </label>
-            <label class="field-block">
-              <span>所属单位</span>
-              <input v-model.trim="createForm.organization" maxlength="120" required placeholder="例如：XX 环卫中心">
-            </label>
-            <label class="field-block">
-              <span>密码</span>
-              <input v-model="createForm.password" type="password" minlength="6" required>
-            </label>
-            <label class="field-block">
-              <span>确认密码</span>
-              <input v-model="createForm.confirm_password" type="password" minlength="6" required>
-            </label>
-            <label class="field-block">
-              <span>安全码</span>
-              <input v-model.trim="createForm.security_code" maxlength="32" required>
-            </label>
-            <label class="field-block">
-              <span>角色</span>
-              <select v-model="createForm.role" required>
-                <option value="user">普通用户</option>
-                <option value="admin">管理员</option>
-              </select>
-            </label>
+            <UserProfileFields :form="createForm" :include-security-code="true" :include-role="true"
+              :require-password="true" />
             <div class="create-actions">
               <button type="submit" :disabled="submitting">
                 {{ submitting ? '创建中...' : '创建用户' }}
@@ -514,22 +520,13 @@ onMounted(loadUsers)
           </p>
 
           <form class="self-profile-form" @submit.prevent="saveCurrentUserProfile">
-            <label class="field-block">
-              <span>用户名</span>
-              <input v-model.trim="selfForm.username" maxlength="50" minlength="3" required>
-            </label>
-            <label class="field-block">
-              <span>所属单位</span>
-              <input v-model.trim="selfForm.organization" maxlength="120" required placeholder="例如：XX 环卫中心">
-            </label>
-            <label class="field-block">
-              <span>新密码（留空不修改）</span>
-              <input v-model="selfForm.password" type="password" minlength="6" placeholder="至少 6 位">
-            </label>
-            <label class="field-block">
-              <span>确认新密码</span>
-              <input v-model="selfForm.confirm_password" type="password" minlength="6" placeholder="再次输入新密码">
-            </label>
+            <UserProfileFields
+              :form="selfForm"
+              password-label="新密码（留空不修改）"
+              confirm-password-label="确认新密码"
+              password-placeholder="至少 6 位"
+              confirm-password-placeholder="再次输入新密码"
+            />
             <div class="create-actions">
               <button type="submit" :disabled="selfSubmitting">
                 {{ selfSubmitting ? '保存中...' : '保存我的信息' }}
@@ -634,22 +631,13 @@ onMounted(loadUsers)
               用户 ID #{{ editingUserId }} · 当前用户名：{{ editingRowName || '-' }}
             </p>
             <form class="edit-form-grid" @submit.prevent="saveUserProfile">
-              <label class="field-block">
-                <span>用户名</span>
-                <input v-model.trim="editForm.username" maxlength="50" minlength="3" required>
-              </label>
-              <label class="field-block">
-                <span>所属单位</span>
-                <input v-model.trim="editForm.organization" maxlength="120" required placeholder="例如：XX 环卫中心">
-              </label>
-              <label class="field-block">
-                <span>新密码（留空则不修改）</span>
-                <input v-model="editForm.password" type="password" minlength="6" placeholder="至少 6 位">
-              </label>
-              <label class="field-block">
-                <span>确认新密码</span>
-                <input v-model="editForm.confirm_password" type="password" minlength="6" placeholder="再次输入新密码">
-              </label>
+              <UserProfileFields
+                :form="editForm"
+                password-label="新密码（留空则不修改）"
+                confirm-password-label="确认新密码"
+                password-placeholder="至少 6 位"
+                confirm-password-placeholder="再次输入新密码"
+              />
               <p class="user-page-subtitle" style="margin-top: -2px;">如不需要重置密码，请保持新密码和确认新密码为空。</p>
               <div class="edit-actions">
                 <button type="submit" :disabled="savingProfileUserId !== null">

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import L from 'leaflet'
+import FormField from '../components/FormField.vue'
 import { getJson, postJson } from '../lib/api'
 import { escapeHtml } from '../lib/escape'
 import { focusMapToDenseRegion } from '../lib/mapFocus'
@@ -939,8 +940,10 @@ onBeforeUnmount(() => {
     <div class="map-toolbar">
       <div class="toolbar-title">机器人任务部署</div>
       <div class="toolbar-row">
-        <input v-model.trim="deviceId" class="input-control toolbar-input" placeholder="设备ID">
-        <input v-model.trim="name" class="input-control toolbar-input" placeholder="名称">
+        <FormField v-model.trim="deviceId" wrapper-class="field-inline" control-class="input-control toolbar-input"
+          placeholder="设备ID" />
+        <FormField v-model.trim="name" wrapper-class="field-inline" control-class="input-control toolbar-input"
+          placeholder="名称" />
         <button type="button" class="square-btn" @click="addRobot">添加机器人</button>
         <button type="button" class="square-btn" @click="loadRobots">刷新</button>
       </div>
@@ -994,10 +997,10 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <input v-model.trim="robotEditName" class="input-control" placeholder="机器人名称">
-        <select v-model="robotEditStatus" class="input-control">
-          <option v-for="status in ROBOT_STATUSES" :key="status" :value="status">{{ status }}</option>
-        </select>
+        <FormField v-model.trim="robotEditName" wrapper-class="field-inline" control-class="input-control"
+          placeholder="机器人名称" />
+        <FormField v-model="robotEditStatus" wrapper-class="field-inline" control-class="input-control" as="select"
+          :options="ROBOT_STATUSES" />
         <div class="drawer-actions robot-actions">
           <button type="button" class="square-btn robot-action-btn" @click="saveRobotProfile">保存机器人</button>
           <button type="button" class="square-btn btn-delete robot-action-btn" @click="deleteRobot(selectedRobot.id)">删除机器人</button>
@@ -1017,24 +1020,26 @@ onBeforeUnmount(() => {
         <div class="task-map-hint">模式：{{ taskPickModeLabel }} ｜ 区域 {{ taskAreaPoints.length }}/{{ MAP_PICK_POINT_LIMIT
           }} ｜ 路径 {{ taskPathPoints.length }}/{{ MAP_PICK_POINT_LIMIT }}</div>
 
-        <input v-model.trim="taskName" class="input-control" placeholder="任务名称，例如：校园北区早巡">
-        <select v-model="taskStatus" class="input-control">
-          <option v-for="item in PATROL_STATUSES" :key="item.value" :value="item.value">{{ item.label }}</option>
-        </select>
+        <FormField v-model.trim="taskName" wrapper-class="field-inline" control-class="input-control"
+          placeholder="任务名称，例如：校园北区早巡" />
+        <FormField v-model="taskStatus" wrapper-class="field-inline" control-class="input-control" as="select"
+          :options="PATROL_STATUSES" />
 
         <div class="task-textarea-head">
           <span>巡检区域坐标（固定 4 点）</span>
           <button type="button" class="square-btn" @click="clearAreaPoints">清空区域</button>
         </div>
-        <textarea v-model="taskAreaText" class="input-control task-textarea"
-          placeholder="每行一个点：\n30.123456,120.123456\n30.223456,120.223456\n30.323456,120.323456\n30.423456,120.423456"></textarea>
+        <FormField v-model="taskAreaText" wrapper-class="field-inline" control-class="input-control task-textarea"
+          as="textarea"
+          placeholder="每行一个点：\n30.123456,120.123456\n30.223456,120.223456\n30.323456,120.323456\n30.423456,120.423456" />
 
         <div class="task-textarea-head">
           <span>规划路径坐标（为空或固定 4 点）</span>
           <button type="button" class="square-btn" @click="clearPathPoints">清空路径</button>
         </div>
-        <textarea v-model="taskPathText" class="input-control task-textarea"
-          placeholder="每行一个点：\n30.120000,120.120000\n30.220000,120.220000\n30.320000,120.320000\n30.420000,120.420000"></textarea>
+        <FormField v-model="taskPathText" wrapper-class="field-inline" control-class="input-control task-textarea"
+          as="textarea"
+          placeholder="每行一个点：\n30.120000,120.120000\n30.220000,120.220000\n30.320000,120.320000\n30.420000,120.420000" />
 
         <div class="drawer-actions">
           <button type="button" class="square-btn" :disabled="taskSaving" @click="savePatrolTask">{{ taskSaving ?

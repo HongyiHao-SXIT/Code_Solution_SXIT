@@ -7,8 +7,10 @@ import requests
 from flask import Blueprint, jsonify, request, session
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.auth_helpers import get_session_user as _get_session_user, is_admin_user as _is_admin_user
 from api.stats_hotspot_service import build_hotspot_payload
 from api.stats_summary_service import build_summary_payload
+from api.nominatim_helpers import rate_limit_nominatim
 from database.db import db
 from database.models import User
 
@@ -16,6 +18,7 @@ stats_bp = Blueprint('stats_bp', __name__)
 logger = logging.getLogger(__name__)
 SUMMARY_CACHE_TTL_SECONDS = 2.0
 _summary_cache = {}
+
 _summary_cache_lock = Lock()
 HOTSPOT_CACHE_TTL_SECONDS = 45.0
 HOTSPOT_CACHE_MAX_ENTRIES = 64
@@ -32,9 +35,6 @@ HOTSPOT_GEO_RETRY_COUNT = 2
 HOTSPOT_GEO_RETRY_BACKOFF_SECONDS = 1.25
 _hotspot_geo_cache = {}
 _hotspot_geo_cache_lock = Lock()
-_nominatim_lock = Lock()
-_nominatim_last_call_ts = 0.0
-_NOMINATIM_MIN_INTERVAL = 1.1
 _EMPTY_REGION = {
     'province': '',
     'city': '',
@@ -45,21 +45,12 @@ _EMPTY_REGION = {
 }
 
 
+def _nominatim_rate_limit():
+    return rate_limit_nominatim()
+
+
 def _copy_payload_for_cache(payload):
     return dict(payload) if isinstance(payload, dict) else payload
-
-
-def _is_admin_user(user):
-    return bool(user and getattr(user, 'role', '') == 'admin')
-
-
-def _get_session_user():
-    user_id = session.get('user_id')
-    if not user_id:
-        return None
-    return db.session.get(User, user_id)
-
-
 def _require_session_user():
     current_user = _get_session_user()
     if not current_user:
@@ -157,19 +148,6 @@ def _pick_address_value(address, keys):
         if value:
             return str(value).strip()
     return ''
-
-
-def _nominatim_rate_limit():
-    """确保 Nominatim 调用间隔不小于 _NOMINATIM_MIN_INTERVAL 秒，遵守使用条款。"""
-    global _nominatim_last_call_ts
-    with _nominatim_lock:
-        now = time.time()
-        wait_time = _NOMINATIM_MIN_INTERVAL - (now - _nominatim_last_call_ts)
-        if wait_time > 0:
-            time.sleep(wait_time)
-        _nominatim_last_call_ts = time.time()
-
-
 def _resolve_hotspot_region(lat, lng):
     if lat is None or lng is None:
         return _empty_region()

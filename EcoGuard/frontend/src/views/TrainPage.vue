@@ -1,5 +1,6 @@
 <script setup>
 import { onBeforeUnmount, reactive, ref } from 'vue'
+import FormField from '../components/FormField.vue'
 import { getJson, postForm } from '../lib/api'
 import { pushFlash } from '../stores/session'
 
@@ -229,19 +230,22 @@ loadTrainConfig()
             <div class="section-title section-title-sm">3. 训练参数</div>
 
             <div class="form-row mt-8">
-              <input v-model.trim="form.dataYaml" class="input-control" placeholder="data.yaml 路径（默认 data.yaml）">
-              <input v-model.number="form.epochs" class="input-control" type="number" min="1" max="10000"
-                placeholder="epochs">
+              <FormField v-model.trim="form.dataYaml" wrapper-class="field-inline" control-class="input-control"
+                placeholder="data.yaml 路径（默认 data.yaml）" />
+              <FormField v-model.number="form.epochs" wrapper-class="field-inline" control-class="input-control"
+                type="number" :min="1" :max="10000" placeholder="epochs" />
             </div>
             <div class="form-row mt-8">
-              <input v-model.number="form.batch" class="input-control" type="number" min="1" max="256"
-                placeholder="batch">
-              <input v-model.number="form.imgsz" class="input-control" type="number" min="64" max="4096"
-                placeholder="imgsz">
+              <FormField v-model.number="form.batch" wrapper-class="field-inline" control-class="input-control"
+                type="number" :min="1" :max="256" placeholder="batch" />
+              <FormField v-model.number="form.imgsz" wrapper-class="field-inline" control-class="input-control"
+                type="number" :min="64" :max="4096" placeholder="imgsz" />
             </div>
             <div class="form-row mt-8">
-              <input v-model.trim="form.device" class="input-control" placeholder="device，例如 cpu 或 0">
-              <input v-model.trim="form.runName" class="input-control" placeholder="run 名称（可选）">
+              <FormField v-model.trim="form.device" wrapper-class="field-inline" control-class="input-control"
+                placeholder="device，例如 cpu 或 0" />
+              <FormField v-model.trim="form.runName" wrapper-class="field-inline" control-class="input-control"
+                placeholder="run 名称（可选）" />
             </div>
             <div class="form-row mt-8">
               <label><input v-model="form.resume" type="checkbox"> 恢复训练（resume）</label>

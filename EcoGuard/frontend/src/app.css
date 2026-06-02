@@ -379,6 +379,15 @@ button:hover,
   margin-bottom: 12px;
 }
 
+.field-block.field-inline {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.field-block.field-inline > :is(input, select, textarea) {
+  width: 100%;
+}
+
 .auth-card label,
 .auth-links,
 .image-size-label,

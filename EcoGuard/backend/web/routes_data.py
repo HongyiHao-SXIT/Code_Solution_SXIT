@@ -11,6 +11,7 @@ from .services_data import (
 from .helpers import (
     _get_current_user,
     _is_admin_user,
+    _can_access_robot,
     _load_task_with_items,
     _parse_page_number,
     _query_latest_items,
@@ -27,16 +28,8 @@ from database.models import OpsLog, Robot
 
 
 _MAX_LOG_ACTION_LEN = 255
-
-
 def _current_user_can_delete_results():
     return _is_admin_user(_get_current_user())
-
-
-def _can_access_robot(current_user, robot):
-    if _is_admin_user(current_user):
-        return True
-    return getattr(robot, 'owner_user_id', None) == getattr(current_user, 'id', None)
 
 
 def _request_page_number():

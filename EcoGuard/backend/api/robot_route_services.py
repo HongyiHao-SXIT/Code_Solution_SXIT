@@ -3,6 +3,15 @@ import json
 import math
 
 
+def _to_float_or_none(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def validate_register_fields(payload):
     device_id = (payload.get('device_id') or '').strip()
     name = (payload.get('name') or '').strip()
@@ -65,10 +74,9 @@ def _parse_geo_point(raw_point, field_name):
     if not isinstance(raw_point, dict):
         raise ValueError(f'{field_name} point must be an object')
 
-    try:
-        lat = float(raw_point.get('lat'))
-        lng = float(raw_point.get('lng'))
-    except (TypeError, ValueError):
+    lat = _to_float_or_none(raw_point.get('lat'))
+    lng = _to_float_or_none(raw_point.get('lng'))
+    if lat is None or lng is None:
         raise ValueError(f'{field_name} contains invalid coordinates')
 
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
@@ -186,10 +194,9 @@ def extract_patrol_waypoints(task, parse_json_text_func):
     for point in candidates:
         if not isinstance(point, dict):
             continue
-        try:
-            lat = float(point.get('lat'))
-            lng = float(point.get('lng'))
-        except (TypeError, ValueError):
+        lat = _to_float_or_none(point.get('lat'))
+        lng = _to_float_or_none(point.get('lng'))
+        if lat is None or lng is None:
             continue
         if -90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0:
             base_waypoints.append({'lat': lat, 'lng': lng})
