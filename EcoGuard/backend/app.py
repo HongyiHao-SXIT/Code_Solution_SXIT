@@ -1,6 +1,5 @@
 import logging
 import os
-import random
 import importlib
 
 from flask import Flask

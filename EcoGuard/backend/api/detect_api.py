@@ -32,7 +32,7 @@ from api.detect_helpers import (
     save_detect_items,
     save_uploaded_file,
 )
-from api.detect_route_services import (
+from api.detect_request_helpers import (
     build_image_result_paths,
     ensure_image_size_with_cleanup,
     ensure_video_size_with_cleanup,

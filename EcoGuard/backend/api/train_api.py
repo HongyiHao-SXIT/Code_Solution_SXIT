@@ -18,7 +18,7 @@ from api.train_helpers import (
     _safe_extract_zip,
 )
 from api.parse_helpers import parse_bool, parse_int
-from api.train_route_services import (
+from api.train_config_helpers import (
     build_job_payload,
     build_job_state,
     ensure_training_roots,

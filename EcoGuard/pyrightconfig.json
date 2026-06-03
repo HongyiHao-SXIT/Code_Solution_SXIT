@@ -1,0 +1,13 @@
+{
+  "typeCheckingMode": "basic",
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false,
+  "reportAttributeAccessIssue": false,
+  "reportOptionalCall": false,
+  "reportOptionalIterable": false,
+  "reportOptionalSubscript": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalOperand": false
+}

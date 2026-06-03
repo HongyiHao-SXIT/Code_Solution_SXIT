@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import request
+from flask import jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.response_helpers import json_error as _json_error_impl, json_from_request as _json_from_request_impl, json_ok as _json_ok_impl
@@ -115,20 +115,6 @@ def _commit_or_error(action_text):
         return _json_error(f'{action_text}失败，请稍后重试', 500)
 
 
-def _parse_navigation_payload(payload):
-    try:
-        robot_id = int(payload.get('id'))
-        latitude = float(payload.get('lat'))
-        longitude = float(payload.get('lng'))
-    except (TypeError, ValueError):
-        return None, None, None, _json_error('导航参数格式错误', 400)
-
-    if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
-        return None, None, None, _json_error('导航坐标超出范围', 400)
-
-    return robot_id, latitude, longitude, None
-
-
 def _normalize_command(command_value):
     if command_value is None:
         return None
@@ -160,11 +146,4 @@ def _find_robot_by_device_or_error(payload):
     robot = _get_robot_by_device_id(device_id)
     if not robot:
         return None, jsonify({'ok': False, 'msg': '设备未注册'}), 403
-    return robot, None, None
-
-
-def _find_robot_by_id_or_error(payload, field_name='id'):
-    robot = _get_robot_or_none(payload.get(field_name))
-    if not robot:
-        return None, None, None
     return robot, None, None

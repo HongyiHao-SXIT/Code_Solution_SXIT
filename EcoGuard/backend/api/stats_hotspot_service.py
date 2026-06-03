@@ -1,4 +1,4 @@
-from api.patrol_opinion_service import build_patrol_opinion_payload
+from api.patrol_opinion import build_patrol_opinion_payload
 
 
 def build_hotspot_payload(lookback_days, top_k, current_user, is_admin_checker, attach_hotspot_regions, logger=None):

@@ -1,2 +1,2 @@
-student_info_tests 2 12.0529
+student_info_tests 3 8.19031
 ---

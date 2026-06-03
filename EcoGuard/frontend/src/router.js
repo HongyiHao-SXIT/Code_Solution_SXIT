@@ -47,7 +47,7 @@ router.beforeEach(async (to) => {
     return { name: 'home' }
   }
 
-  document.title = `${to.meta.title || 'EcoGuard'} - TrashDet`
+  document.title = `${to.meta.title || 'EcoGuard'} — EcoGuard`
   return true
 })
 

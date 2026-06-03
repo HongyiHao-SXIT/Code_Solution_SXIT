@@ -1,11 +1,17 @@
-#include <stdio.h>
 #include <math.h>
+#include <stdio.h>
+
 int main() {
-    double a, b, c, d, x1, x2;
-    scanf("%lf %lf %lf", &a, &b, &c);
-    d = b * b - 4 * a * c;
-    x1 = (-b + sqrt(d)) / (2 * a);
-    x2 = (-b - sqrt(d)) / (2 * a);
-    printf("x1=%.2f, x2=%.2f\n", x1, x2);
-    return 0;
+  double a;
+  double b;
+  double c;
+  double d;
+  double x1;
+  double x2;
+  scanf("%lf %lf %lf", &a, &b, &c);
+  d = b * b - 4 * a * c;
+  x1 = (-b + sqrt(d)) / (2 * a);
+  x2 = (-b - sqrt(d)) / (2 * a);
+  printf("x1=%.2f, x2=%.2f\n", x1, x2);
+  return 0;
 }

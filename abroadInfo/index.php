@@ -2,38 +2,12 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/auth.php';
+
 function e(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
-
-function detectCountry(string $url): string
-{
-    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-    if ($host === '') {
-        return '未知';
-    }
-
-    $map = [
-        '.uk' => '英国',
-        '.ac.uk' => '英国',
-        '.edu' => '美国',
-        '.edu.au' => '澳大利亚',
-        '.ca' => '加拿大',
-        '.de' => '德国',
-        '.fr' => '法国',
-        '.jp' => '日本',
-        '.sg' => '新加坡',
-        '.cn' => '中国',
-    ];
-
-    foreach ($map as $suffix => $country) {
-        if (str_ends_with($host, $suffix)) {
-            return $country;
-        }
-    }
-
-    return '其他';
 }
 
 function detectLanguageTags(string $text): array
@@ -42,10 +16,10 @@ function detectLanguageTags(string $text): array
     $checks = [
         'IELTS' => '/\bIELTS\b|雅思/i',
         'TOEFL' => '/\bTOEFL\b|托福/i',
-        'SAT' => '/\bSAT\b/i',
-        'ACT' => '/\bACT\b/i',
-        'GRE' => '/\bGRE\b/i',
-        'GMAT' => '/\bGMAT\b/i',
+        'SAT'   => '/\bSAT\b/i',
+        'ACT'   => '/\bACT\b/i',
+        'GRE'   => '/\bGRE\b/i',
+        'GMAT'  => '/\bGMAT\b/i',
     ];
 
     foreach ($checks as $label => $pattern) {
@@ -57,24 +31,14 @@ function detectLanguageTags(string $text): array
     return $tags;
 }
 
-function parseDeadline(string $text): ?DateTimeImmutable
-{
-    if (preg_match('/(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/', $text, $matches)) {
-        $date = sprintf('%04d-%02d-%02d', (int) $matches[1], (int) $matches[2], (int) $matches[3]);
-        return DateTimeImmutable::createFromFormat('Y-m-d', $date) ?: null;
-    }
-
-    return null;
-}
-
-function statusByDeadline(?DateTimeImmutable $deadline): array
+function statusText(?\DateTimeImmutable $deadline): array
 {
     if ($deadline === null) {
         return ['text' => '待确认', 'class' => 'text-slate-500'];
     }
 
     $today = new DateTimeImmutable('today');
-    $days = (int) $today->diff($deadline)->format('%r%a');
+    $days  = (int) $today->diff($deadline)->format('%r%a');
 
     if ($days < 0) {
         return ['text' => '已截止', 'class' => 'text-gray-500'];
@@ -86,181 +50,169 @@ function statusByDeadline(?DateTimeImmutable $deadline): array
     return ['text' => '开放中', 'class' => 'text-emerald-600'];
 }
 
-function loadAdmissions(string $baseDir): array
-{
-    $candidateFiles = [
-        $baseDir . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEPARATOR . 'Spider' . DIRECTORY_SEPARATOR . 'admission_requirements.csv',
-        $baseDir . DIRECTORY_SEPARATOR . 'Spider' . DIRECTORY_SEPARATOR . 'admission_requirements.csv',
-        $baseDir . DIRECTORY_SEPARATOR . 'admission_requirements.csv',
-    ];
-
-    $filePath = null;
-    foreach ($candidateFiles as $path) {
-        if (is_file($path)) {
-            $filePath = $path;
-            break;
-        }
-    }
-
-    if ($filePath === null) {
-        return [];
-    }
-
-    $rows = [];
-    $fp = fopen($filePath, 'rb');
-    if ($fp === false) {
-        return [];
-    }
-
-    $header = fgetcsv($fp);
-    if ($header === false) {
-        fclose($fp);
-        return [];
-    }
-
-    $header = array_map(static fn($h) => trim((string) $h), $header);
-
-    while (($line = fgetcsv($fp)) !== false) {
-        if (count($line) !== count($header)) {
-            continue;
-        }
-
-        $item = array_combine($header, $line);
-        if ($item === false) {
-            continue;
-        }
-
-        $home = trim((string) ($item['university_home'] ?? ''));
-        $title = trim((string) ($item['page_title'] ?? ''));
-        $url = trim((string) ($item['page_url'] ?? ''));
-        $snippet = trim((string) ($item['requirement_snippet'] ?? ''));
-
-        if ($url === '' || $snippet === '') {
-            continue;
-        }
-
-        $deadline = parseDeadline($snippet);
-        $rows[] = [
-            'university_home' => $home,
-            'page_title' => $title !== '' ? $title : 'Admissions',
-            'page_url' => $url,
-            'requirement_snippet' => $snippet,
-            'country' => detectCountry($url),
-            'language_tags' => detectLanguageTags($snippet),
-            'deadline' => $deadline,
-            'status' => statusByDeadline($deadline),
-        ];
-    }
-
-    fclose($fp);
-    return $rows;
-}
-
-$data = loadAdmissions(__DIR__);
-
-if ($data === []) {
-    $data = [
-        [
-            'university_home' => 'https://www.ox.ac.uk/admissions',
-            'page_title' => 'Undergraduate admissions and applications',
-            'page_url' => 'https://www.ox.ac.uk/admissions/undergraduate',
-            'requirement_snippet' => 'Typical offers include IELTS and course-specific grade requirements. Deadlines vary by program and college.',
-            'country' => '英国',
-            'language_tags' => ['IELTS'],
-            'deadline' => null,
-            'status' => ['text' => '待确认', 'class' => 'text-slate-500'],
-        ],
-        [
-            'university_home' => 'https://www.mit.edu/admissions-aid/',
-            'page_title' => 'First-year application',
-            'page_url' => 'https://mitadmissions.org/apply/firstyear/',
-            'requirement_snippet' => 'Application requires transcripts and testing policy details. TOEFL is considered for non-native speakers.',
-            'country' => '美国',
-            'language_tags' => ['TOEFL'],
-            'deadline' => null,
-            'status' => ['text' => '待确认', 'class' => 'text-slate-500'],
-        ],
-        [
-            'university_home' => 'https://www.ucl.ac.uk/prospective-students/',
-            'page_title' => 'International students entry requirements',
-            'page_url' => 'https://www.ucl.ac.uk/prospective-students/international',
-            'requirement_snippet' => 'International applicants should check country-specific academic requirements, English tests, and application timelines.',
-            'country' => '英国',
-            'language_tags' => ['IELTS', 'TOEFL'],
-            'deadline' => null,
-            'status' => ['text' => '待确认', 'class' => 'text-slate-500'],
-        ],
-    ];
-}
-
-$q = trim((string) ($_GET['q'] ?? ''));
+// ---------- Request parameters ----------
+$q            = trim((string) ($_GET['q'] ?? ''));
 $countryFilter = trim((string) ($_GET['country'] ?? '全部'));
-$examFilter = trim((string) ($_GET['exam'] ?? '全部'));
-$sort = trim((string) ($_GET['sort'] ?? 'updated'));
-$page = max(1, (int) ($_GET['page'] ?? 1));
-$perPage = 8;
+$examFilter   = trim((string) ($_GET['exam'] ?? '全部'));
+$sort         = trim((string) ($_GET['sort'] ?? 'updated'));
+$page         = max(1, (int) ($_GET['page'] ?? 1));
+$perPage      = 8;
 
-$countries = ['全部'];
-foreach ($data as $row) {
-    if (!in_array($row['country'], $countries, true)) {
-        $countries[] = $row['country'];
+// ---------- Build query ----------
+$pdo = db();
+
+$where  = [];
+$params = [];
+
+if ($q !== '') {
+    $where[]  = "(university_home LIKE :q1 OR page_title LIKE :q2 OR requirement_snippet LIKE :q3 OR page_url LIKE :q4)";
+    $likeQ    = '%' . $q . '%';
+    $params[':q1'] = $likeQ;
+    $params[':q2'] = $likeQ;
+    $params[':q3'] = $likeQ;
+    $params[':q4'] = $likeQ;
+}
+
+if ($countryFilter !== '全部') {
+    $countryMap = [
+        '英国'     => '.uk',
+        '美国'     => '.edu',
+        '澳大利亚' => '.edu.au',
+        '加拿大'   => '.ca',
+        '德国'     => '.de',
+        '法国'     => '.fr',
+        '日本'     => '.jp',
+        '新加坡'   => '.sg',
+        '中国'     => '.cn',
+    ];
+    if (isset($countryMap[$countryFilter])) {
+        $suffix = $countryMap[$countryFilter];
+        // Match page_url domain suffix
+        if ($countryFilter === '美国') {
+            $where[] = "(page_url LIKE :csfx AND page_url NOT LIKE :csfx2)";
+            $params[':csfx']  = '%' . $suffix . '%';
+            $params[':csfx2'] = '%.edu.au%';
+        } else {
+            $where[] = "page_url LIKE :csfx";
+            $params[':csfx'] = '%' . $suffix . '%';
+        }
+    } elseif ($countryFilter === '其他') {
+        // Match URLs that don't match any known suffix
+        $where[] = "(page_url NOT LIKE '%.uk%' AND page_url NOT LIKE '%.edu%' AND page_url NOT LIKE '%.ca%' AND page_url NOT LIKE '%.de%' AND page_url NOT LIKE '%.fr%' AND page_url NOT LIKE '%.jp%' AND page_url NOT LIKE '%.sg%' AND page_url NOT LIKE '%.cn%')";
     }
 }
-sort($countries);
-array_unshift($countries, '全部');
-$countries = array_values(array_unique($countries));
+
+$whereClause = $where !== [] ? 'WHERE ' . implode(' AND ', $where) : '';
+
+// Exam filter is done in PHP (requires regex on snippet text)
+// So we fetch all matching rows and filter in PHP for exam
+
+// Sort
+$orderClause = match ($sort) {
+    'deadline' => 'ORDER BY deadline_date IS NULL, deadline_date ASC',
+    default    => 'ORDER BY created_at DESC',
+};
+
+// ---------- Count total ----------
+$countSql = "SELECT COUNT(*) FROM admission_pages {$whereClause}";
+$countStmt = $pdo->prepare($countSql);
+$countStmt->execute($params);
+$total = (int) $countStmt->fetchColumn();
+
+// ---------- Fetch rows ----------
+$dataSql = "SELECT * FROM admission_pages {$whereClause} {$orderClause}";
+$dataStmt = $pdo->prepare($dataSql);
+$dataStmt->execute($params);
+$allRows = $dataStmt->fetchAll();
+
+// ---------- Exam filter (PHP side, regex on requirement_snippet) ----------
+if ($examFilter !== '全部') {
+    $allRows = array_values(array_filter($allRows, static function (array $row) use ($examFilter): bool {
+        $snippet = $row['requirement_snippet'] ?? '';
+        $patterns = [
+            'IELTS' => '/\bIELTS\b|雅思/i',
+            'TOEFL' => '/\bTOEFL\b|托福/i',
+            'SAT'   => '/\bSAT\b/i',
+            'ACT'   => '/\bACT\b/i',
+            'GRE'   => '/\bGRE\b/i',
+            'GMAT'  => '/\bGMAT\b/i',
+        ];
+        if (!isset($patterns[$examFilter])) {
+            return true;
+        }
+        return (bool) preg_match($patterns[$examFilter], $snippet);
+    }));
+    $total = count($allRows);
+}
+
+// ---------- Pagination ----------
+$totalPages = max(1, (int) ceil($total / $perPage));
+$page       = min($page, $totalPages);
+$offset     = ($page - 1) * $perPage;
+$rows       = array_slice($allRows, $offset, $perPage);
+
+// ---------- Enrich rows ----------
+$enrichedRows = [];
+foreach ($rows as $row) {
+    $snippet  = $row['requirement_snippet'] ?? '';
+    $deadline = null;
+    if ($row['deadline_date'] !== null) {
+        $deadline = DateTimeImmutable::createFromFormat('Y-m-d', $row['deadline_date']) ?: null;
+    }
+    $enrichedRows[] = [
+        'id'                 => $row['id'],
+        'university_home'    => $row['university_home'] ?? '',
+        'page_title'         => $row['page_title'] ?? 'Admissions',
+        'page_url'           => $row['page_url'] ?? '',
+        'requirement_snippet'=> $snippet,
+        'country'            => $row['country'] ?? detectCountryFromUrl($row['page_url'] ?? ''),
+        'language_tags'      => detectLanguageTags($snippet),
+        'deadline'           => $deadline,
+        'status'             => statusText($deadline),
+    ];
+}
+
+function detectCountryFromUrl(string $url): string
+{
+    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+    if ($host === '') {
+        return '未知';
+    }
+    $map = [
+        '.uk'     => '英国',
+        '.ac.uk'  => '英国',
+        '.edu'    => '美国',
+        '.edu.au' => '澳大利亚',
+        '.ca'     => '加拿大',
+        '.de'     => '德国',
+        '.fr'     => '法国',
+        '.jp'     => '日本',
+        '.sg'     => '新加坡',
+        '.cn'     => '中国',
+    ];
+    foreach ($map as $suffix => $country) {
+        if (str_ends_with($host, $suffix)) {
+            return $country;
+        }
+    }
+    return '其他';
+}
+
+// ---------- Build filter dropdowns ----------
+$countryStmt = $pdo->query("SELECT DISTINCT country FROM admission_pages WHERE country IS NOT NULL AND country != '' ORDER BY country");
+$dbCountries = $countryStmt->fetchAll(PDO::FETCH_COLUMN);
+// Add "其他" for unknown
+$hasOthers = (bool) $pdo->query("SELECT COUNT(*) FROM admission_pages WHERE country IS NULL OR country = ''")->fetchColumn();
+$countries = array_merge(['全部'], $dbCountries);
+if ($hasOthers) {
+    $countries[] = '其他';
+}
 
 $exams = ['全部', 'IELTS', 'TOEFL', 'SAT', 'ACT', 'GRE', 'GMAT'];
 
-$filtered = array_values(array_filter(
-    $data,
-    static function (array $row) use ($q, $countryFilter, $examFilter): bool {
-        if ($countryFilter !== '全部' && $row['country'] !== $countryFilter) {
-            return false;
-        }
-
-        if ($examFilter !== '全部' && !in_array($examFilter, $row['language_tags'], true)) {
-            return false;
-        }
-
-        if ($q !== '') {
-            $haystack = strtolower(
-                $row['page_title'] . ' ' .
-                $row['requirement_snippet'] . ' ' .
-                $row['page_url'] . ' ' .
-                $row['university_home']
-            );
-            if (!str_contains($haystack, strtolower($q))) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-));
-
-usort(
-    $filtered,
-    static function (array $a, array $b) use ($sort): int {
-        if ($sort === 'deadline') {
-            $ad = $a['deadline'] instanceof DateTimeImmutable ? $a['deadline']->getTimestamp() : PHP_INT_MAX;
-            $bd = $b['deadline'] instanceof DateTimeImmutable ? $b['deadline']->getTimestamp() : PHP_INT_MAX;
-            return $ad <=> $bd;
-        }
-
-        return strcmp($a['page_title'], $b['page_title']);
-    }
-);
-
-$total = count($filtered);
-$totalPages = max(1, (int) ceil($total / $perPage));
-$page = min($page, $totalPages);
-$offset = ($page - 1) * $perPage;
-$rows = array_slice($filtered, $offset, $perPage);
-
-$hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEPARATOR . 'Spider' . DIRECTORY_SEPARATOR . 'admission_requirements.csv')
-    || is_file(__DIR__ . DIRECTORY_SEPARATOR . 'Spider' . DIRECTORY_SEPARATOR . 'admission_requirements.csv')
-    || is_file(__DIR__ . DIRECTORY_SEPARATOR . 'admission_requirements.csv');
+// ---------- Check if DB has data ----------
+$dbCount = (int) $pdo->query("SELECT COUNT(*) FROM admission_pages")->fetchColumn();
+$hasData = $dbCount > 0;
 
 ?>
 <!DOCTYPE html>
@@ -268,7 +220,7 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全球大学招生要求汇总</title>
+    <title>全球大学招生要求汇总 - UniData</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -278,10 +230,51 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
         <h1 class="text-lg md:text-xl font-bold text-sky-700">
             <i class="fa-solid fa-graduation-cap mr-2"></i>UniData 招生要求平台
         </h1>
+        <div class="flex items-center gap-4">
+            <a href="match.php" class="text-sm text-slate-600 hover:text-sky-700">
+                <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>智能匹配
+            </a>
+            <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-400 hidden sm:inline">数据库记录: <?php echo $dbCount; ?> 条</span>
+            <?php if (isLoggedIn()): ?>
+                <span class="text-sm text-slate-600">
+                    <i class="fa-solid fa-user mr-1"></i><?php echo htmlspecialchars(currentUserAccount() ?? '', ENT_QUOTES, 'UTF-8'); ?>
+                </span>
+                <a href="logout.php" class="text-sm text-slate-500 hover:text-red-600 transition">
+                    <i class="fa-solid fa-right-from-bracket mr-1"></i>退出
+                </a>
+            <?php else: ?>
+                <a href="login.php" class="text-sm text-sky-600 hover:text-sky-800 transition">
+                    <i class="fa-solid fa-right-to-bracket mr-1"></i>登录
+                </a>
+                <a href="register.php" class="text-sm px-3 py-1 rounded-lg bg-sky-600 text-white hover:bg-sky-700 transition">
+                    注册
+                </a>
+            <?php endif; ?>
+            </div>
+        </div>
     </div>
 </nav>
 
 <main class="max-w-7xl mx-auto px-4 py-8">
+    <?php if (!$hasData): ?>
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
+            <p class="text-amber-800 font-semibold text-lg mb-2">
+                <i class="fa-solid fa-triangle-exclamation mr-2"></i>数据库中暂无数据
+            </p>
+            <p class="text-amber-700 mb-3">请先运行爬虫获取数据，然后导入数据库：</p>
+            <div class="bg-slate-900 text-green-400 text-left p-4 rounded-lg inline-block text-sm font-mono">
+                # 1. 初始化数据库<br>
+                php init_db.php<br><br>
+                # 2. 运行爬虫（需要有 Python 环境）<br>
+                pip install httpx beautifulsoup4<br>
+                python py_algorithm/Spider/main.py<br><br>
+                # 3. 导入 CSV 数据<br>
+                php import_csv.php
+            </div>
+        </div>
+    <?php endif; ?>
+
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <aside class="lg:col-span-1">
             <form method="get" class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
@@ -301,9 +294,9 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
                 <div>
                     <label class="text-sm text-slate-600">国家/地区</label>
                     <select name="country" class="mt-1 w-full rounded-lg border-slate-300 focus:border-sky-500 focus:ring-sky-500">
-                        <?php foreach ($countries as $country): ?>
-                            <option value="<?php echo e($country); ?>" <?php echo $countryFilter === $country ? 'selected' : ''; ?>>
-                                <?php echo e($country); ?>
+                        <?php foreach ($countries as $c): ?>
+                            <option value="<?php echo e($c); ?>" <?php echo $countryFilter === $c ? 'selected' : ''; ?>>
+                                <?php echo e($c); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -323,7 +316,7 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
                 <div>
                     <label class="text-sm text-slate-600">排序方式</label>
                     <select name="sort" class="mt-1 w-full rounded-lg border-slate-300 focus:border-sky-500 focus:ring-sky-500">
-                        <option value="updated" <?php echo $sort === 'updated' ? 'selected' : ''; ?>>按标题排序</option>
+                        <option value="updated" <?php echo $sort === 'updated' ? 'selected' : ''; ?>>最新更新</option>
                         <option value="deadline" <?php echo $sort === 'deadline' ? 'selected' : ''; ?>>按截止日期排序</option>
                     </select>
                 </div>
@@ -332,11 +325,11 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
             </form>
 
             <div class="mt-4 bg-white border border-slate-200 rounded-2xl p-4 text-sm text-slate-600">
-                <?php if ($hasCsv): ?>
-                    <p><i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> 已检测到爬虫数据 CSV。</p>
+                <?php if ($hasData): ?>
+                    <p><i class="fa-solid fa-database text-sky-600 mr-1"></i> 数据来源：MySQL 数据库</p>
+                    <p class="mt-1 text-xs text-slate-400">admission_pages 表</p>
                 <?php else: ?>
-                    <p><i class="fa-solid fa-triangle-exclamation text-amber-600 mr-1"></i> 未检测到 CSV，当前显示示例数据。</p>
-                    <p class="mt-2">可运行命令：<br>python py_algorithm/Spider/main.py</p>
+                    <p><i class="fa-solid fa-circle-exclamation text-amber-600 mr-1"></i> 无数据，请先运行爬虫并导入。</p>
                 <?php endif; ?>
             </div>
         </aside>
@@ -346,13 +339,13 @@ $hasCsv = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'py_algorithm' . DIRECTORY_SEP
                 <p class="text-sm text-slate-600">共匹配 <?php echo $total; ?> 条记录，第 <?php echo $page; ?>/<?php echo $totalPages; ?> 页</p>
             </div>
 
-            <?php if ($rows === []): ?>
+            <?php if ($enrichedRows === []): ?>
                 <div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500">
                     未找到符合条件的数据，请调整筛选条件。
                 </div>
             <?php endif; ?>
 
-            <?php foreach ($rows as $row): ?>
+            <?php foreach ($enrichedRows as $row): ?>
                 <article class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm hover:shadow-md transition">
                     <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                         <div class="min-w-0">

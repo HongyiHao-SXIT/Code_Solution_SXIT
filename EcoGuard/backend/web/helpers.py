@@ -23,10 +23,13 @@ from .services_captcha import (
     _issue_captcha_payload,
     _verify_captcha_payload,
 )
-from .utils import _normalize_secret
 
 APP_TITLE = 'EcoGuard 垃圾拾捡机器人管理系统'
 DEFAULT_LOGIN_NEXT = '/'
+
+
+def _normalize_secret(raw_value):
+    return str(raw_value or '').strip()
 
 
 def _find_user_by_username(username):

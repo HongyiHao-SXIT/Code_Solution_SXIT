@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS projects (
 	name VARCHAR(255) NOT NULL,
 	description TEXT,
 	language_requirement VARCHAR(255) DEFAULT NULL,
-	gpa_requirement DECIMAL(3,2) DEFAULT NULL,
+	gpa_requirement DECIMAL(5,2) DEFAULT NULL,
 	degree_level VARCHAR(50) DEFAULT NULL,
 	deadline_date DATE DEFAULT NULL,
 	page_url VARCHAR(500) DEFAULT NULL,

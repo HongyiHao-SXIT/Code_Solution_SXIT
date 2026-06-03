@@ -1,0 +1,199 @@
+# EcoGuard
+
+EcoGuard 是一个面向垃圾巡检与保洁机器人场景的全栈平台，包含：
+- 后端 Flask 服务（检测、统计、机器人、训练、认证）
+- 前端 Vue 3 单页应用（SPA）
+- 机器人固件集成示例与本地仿真脚本
+
+项目目标是打通从图像采集、垃圾识别、任务入库、热点统计到机器人调度与模型迭代训练的完整闭环。
+
+## 功能概览
+
+- 图像检测
+  - 上传图片后执行 YOLO 推理
+  - 返回检测框、类别、置信度，并保存标注图
+  - 支持服务侧结果回灌接口（ingest）
+- 视频检测
+  - 上传视频后异步检测
+  - 通过任务状态接口轮询进度与结果
+- 数据统计
+  - 汇总检测趋势、类别分布、地图点位
+  - 提供热点区域分析与地理解析缓存
+- 机器人管理
+  - 设备注册、心跳/状态同步、控制指令、导航下发
+  - 机器人列表与状态更新
+- 在线训练
+  - 上传数据集 ZIP，异步启动训练任务
+  - 查询训练状态、日志与产出目录
+- Web 认证与管理
+  - 注册/登录/登出、会话状态、验证码
+  - 任务列表、详情与管理接口
+
+## 仓库结构
+
+```text
+EcoGuard/
+├─ backend/                  # Flask 后端
+│  ├─ app.py                 # 后端入口
+│  ├─ config.py              # 配置与运行时覆盖
+│  ├─ runtime_config.yaml    # 业务运行时配置
+│  ├─ api/                   # detect/stats/robot/train API
+│  ├─ web/                   # SPA 兼容页面与 Web API
+│  ├─ database/              # SQLAlchemy 模型与数据库初始化
+│  ├─ inference/             # YOLO 推理封装
+│  ├─ test/                  # 后端单元测试
+│  └─ requirements.txt       # Python 依赖
+├─ frontend/                 # Vue 3 + Vite 前端
+│  ├─ src/
+│  ├─ package.json
+│  └─ vite.config.js         # build 输出到 backend/static/spa
+├─ Simulator/                # 机器人仿真脚本
+└─ LICENSE
+```
+
+## 环境要求
+
+- Python 3.10+（建议）
+- Node.js 18+
+- 可选：CUDA 环境（若需 GPU 训练/推理）
+- 数据库
+  - 默认可使用 SQLite
+  - 也可通过配置切换 MySQL
+
+## 后端快速开始
+
+1. 创建并激活 Python 环境。
+2. 安装依赖。
+3. 启动服务。
+
+```bash
+cd backend
+pip install -r requirements.txt
+python app.py
+```
+
+启动后访问：
+- http://127.0.0.1:5000
+- 健康检查：http://127.0.0.1:5000/health
+
+说明：
+- 服务启动时会自动执行 `db.create_all()`。
+- 若数据库中无用户，会自动创建引导管理员账号（请在生产环境立即改密）。
+
+## 前端开发与构建
+
+开发模式：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+默认通过 Vite 代理转发 `/api` 到 `http://127.0.0.1:5000`。
+
+生产构建：
+
+```bash
+cd frontend
+npm run build
+```
+
+构建产物输出到 `backend/static/spa`，由后端统一托管。
+
+## 配置说明
+
+后端配置优先级：
+1. 环境变量
+2. `backend/runtime_config.yaml`
+3. `backend/config.py` 默认值
+
+常用项：
+- `SQLALCHEMY_DATABASE_URI` / `DATABASE_URL`
+- `YOLO_MODEL_PATH`
+- `YOLO_CONF_THRESHOLD`
+- `MAX_CONTENT_LENGTH`
+- `TRAIN_MAX_CONTENT_LENGTH`
+- `CAPTCHA_ENABLED`
+
+注意：
+- `runtime_config.yaml` 默认示例是 MySQL（`trashdet`）。
+- 若本地没有对应库，可改为 SQLite URI，或移除 MySQL 配置段。
+
+## 主要接口
+
+检测相关：
+- `GET /api/detect/dependencies` 检查检测依赖状态
+- `POST /api/detect` 图片检测
+- `POST /api/detect/video` 视频异步检测
+- `GET /api/detect/video/status/<task_id>` 查询视频检测状态
+- `POST /api/detect/ingest` 接收外部检测结果入库
+
+统计相关：
+- `GET /api/stats/summary` 获取汇总统计
+- `GET /api/stats/hotspots` 获取热点分析
+
+机器人相关：
+- `POST /api/robot/register`
+- `POST /api/robot/heartbeat`
+- `POST /api/robot/status_update`
+- `POST /api/robot/control`
+- `POST /api/robot/navigate`
+- `GET /api/robot/list`
+
+训练相关：
+- `GET /api/train/config`
+- `POST /api/train/start`
+- `GET /api/train/status/<job_id>`
+- `GET /api/train/status`
+
+Web 会话与业务接口（节选）：
+- `GET /api/web/session`
+- `POST /api/web/login`
+- `POST /api/web/register`
+- `POST /api/web/logout`
+- `GET /api/web/tasks`
+
+## 模型与训练
+
+- 推理器位于 `backend/inference/yolo_detector.py`。
+- 训练任务通过 `POST /api/train/start` 异步执行。
+- 训练数据需上传 ZIP，支持自定义权重 `.pt`。
+- 返回结果中会包含训练产出目录与权重提示路径。
+
+## 机器人与仿真
+
+- 机器人固件示例位于 `backend/Clean_Robot/`。
+- 桌面仿真脚本位于 `Simulator/`。
+- 后端通过机器人 API 提供心跳、状态、导航与控制通道。
+
+## 测试
+
+在后端目录执行：
+
+```bash
+cd backend
+python -m unittest discover -s test -p "test_*.py"
+```
+
+若环境缺少完整依赖，可先运行基础测试：
+
+```bash
+cd backend
+python -m unittest -q test.test_config test.test_ml_algorithm
+```
+
+## 常见问题
+
+- 检测接口返回依赖缺失
+  - 先调用 `GET /api/detect/dependencies` 查看缺失包与安装建议。
+- 启动时报 MySQL 库不存在
+  - 检查 `backend/runtime_config.yaml` 中 database 配置，改为可用库或 SQLite。
+- 训练上传被 413 拒绝
+  - 增大 `TRAIN_MAX_CONTENT_LENGTH`，并保证 `MAX_CONTENT_LENGTH` 不小于该值。
+- 前端样式或资源异常
+  - 确保使用 `frontend` 构建产物，并由后端 `backend/static/spa` 提供静态资源。
+
+## 许可证
+
+本项目采用 MIT 协议，详见 `LICENSE`。

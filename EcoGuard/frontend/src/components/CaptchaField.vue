@@ -53,3 +53,30 @@ function refresh() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.captcha-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.captcha-row input {
+  flex: 1;
+  min-width: 0;
+}
+.captcha-image {
+  width: 120px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.captcha-refresh {
+  min-height: 38px;
+  padding: 0 var(--space-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+</style>

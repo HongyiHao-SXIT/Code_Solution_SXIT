@@ -7,7 +7,7 @@ import time
 
 from flask import current_app, session
 
-from .utils import _normalize_secret
+from .helpers import _normalize_secret
 
 try:
     from PIL import Image, ImageDraw, ImageFilter

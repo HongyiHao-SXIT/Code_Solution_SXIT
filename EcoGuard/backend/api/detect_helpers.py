@@ -4,11 +4,10 @@ import threading
 import uuid
 from datetime import datetime
 
-import requests
-from flask import current_app, jsonify, request
+from flask import current_app, request
 
+from api.geo_utils import reverse_geocode
 from api.response_helpers import json_error as _json_error_impl, json_success as _json_success_impl
-from api.nominatim_helpers import rate_limit_nominatim
 from api.parse_helpers import parse_bool, parse_int, parse_optional_float
 from database.db import db
 from database.models import DetectItem, DetectTask
@@ -216,7 +215,7 @@ def parse_geo_from_form(form_data):
 def resolve_location(latitude, longitude):
     if latitude is None or longitude is None:
         return '未知地点'
-    return lookup_address(latitude, longitude)
+    return reverse_geocode(latitude, longitude)
 
 
 def save_uploaded_file(uploaded_file):
@@ -280,27 +279,6 @@ def _normalize_ingest_detection(raw_item):
         'confidence': confidence,
         'bbox': bbox,
     }
+# Re-export for backward-compatibility (other modules import lookup_address from here)
 def lookup_address(lat, lng):
-    if lat is None or lng is None:
-        return '未知地点'
-
-    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
-        return f'坐标： {lat}, {lng} (超出有效范围)'
-
-    try:
-        rate_limit_nominatim()
-        url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}&zoom=10&addressdetails=1'
-        headers = {
-            'User-Agent': 'EcoGuard/2.0 (trash-detection-robot-system)'
-        }
-
-        geo_response = requests.get(url, headers=headers, timeout=5)
-        if geo_response.status_code == 200:
-            geo_payload = geo_response.json()
-            resolved_address = geo_payload.get('display_name', '未知地点')
-            return resolved_address
-        return f'坐标： {lat}, {lng} (无法解析地址)'
-
-    except Exception:
-        logger.exception('地址解析失败')
-        return f'坐标： {lat}, {lng} (解析地址失败)'
+    return reverse_geocode(lat, lng)

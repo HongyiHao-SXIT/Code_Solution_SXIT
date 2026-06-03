@@ -1,70 +1,70 @@
 # EcoGuard
 
-EcoGuard 是一个面向垃圾巡检与保洁机器人场景的全栈平台，包含：
-- 后端 Flask 服务（检测、统计、机器人、训练、认证）
-- 前端 Vue 3 单页应用（SPA）
-- 机器人固件集成示例与本地仿真脚本
+EcoGuard is a full-stack platform for waste inspection and cleaning robot operations, including:
+- Flask backend services (detection, statistics, robot control, training, authentication)
+- Vue 3 single-page frontend (SPA)
+- Robot firmware integration examples and local simulation scripts
 
-项目目标是打通从图像采集、垃圾识别、任务入库、热点统计到机器人调度与模型迭代训练的完整闭环。
+The project is designed as an end-to-end loop from image capture and garbage detection to data storage, hotspot analytics, robot scheduling, and model retraining.
 
-## 功能概览
+## Feature Highlights
 
-- 图像检测
-  - 上传图片后执行 YOLO 推理
-  - 返回检测框、类别、置信度，并保存标注图
-  - 支持服务侧结果回灌接口（ingest）
-- 视频检测
-  - 上传视频后异步检测
-  - 通过任务状态接口轮询进度与结果
-- 数据统计
-  - 汇总检测趋势、类别分布、地图点位
-  - 提供热点区域分析与地理解析缓存
-- 机器人管理
-  - 设备注册、心跳/状态同步、控制指令、导航下发
-  - 机器人列表与状态更新
-- 在线训练
-  - 上传数据集 ZIP，异步启动训练任务
-  - 查询训练状态、日志与产出目录
-- Web 认证与管理
-  - 注册/登录/登出、会话状态、验证码
-  - 任务列表、详情与管理接口
+- Image Detection
+  - Upload an image and run YOLO inference
+  - Return boxes/classes/confidence and save annotated outputs
+  - Support server-side ingest API for external detection results
+- Video Detection
+  - Upload video and process asynchronously
+  - Poll task status/results via API
+- Analytics
+  - Detection trends, class distribution, and map points
+  - Hotspot analysis with geocoding cache
+- Robot Management
+  - Registration, heartbeat/status sync, control commands, navigation
+  - Robot list and status updates
+- Online Training
+  - Upload dataset ZIP and start async training jobs
+  - Query job status, logs, and output artifacts
+- Web Auth and Operations
+  - Register/login/logout, session state, captcha
+  - Task list/detail and management APIs
 
-## 仓库结构
+## Repository Layout
 
 ```text
 EcoGuard/
-├─ backend/                  # Flask 后端
-│  ├─ app.py                 # 后端入口
-│  ├─ config.py              # 配置与运行时覆盖
-│  ├─ runtime_config.yaml    # 业务运行时配置
-│  ├─ api/                   # detect/stats/robot/train API
-│  ├─ web/                   # SPA 兼容页面与 Web API
-│  ├─ database/              # SQLAlchemy 模型与数据库初始化
-│  ├─ inference/             # YOLO 推理封装
-│  ├─ test/                  # 后端单元测试
-│  └─ requirements.txt       # Python 依赖
-├─ frontend/                 # Vue 3 + Vite 前端
+├─ backend/                  # Flask backend
+│  ├─ app.py                 # Backend entrypoint
+│  ├─ config.py              # Config and runtime overrides
+│  ├─ runtime_config.yaml    # Runtime business config
+│  ├─ api/                   # detect/stats/robot/train APIs
+│  ├─ web/                   # SPA-compatible routes and web APIs
+│  ├─ database/              # SQLAlchemy models and DB bootstrap
+│  ├─ inference/             # YOLO inference wrapper
+│  ├─ test/                  # Backend unit tests
+│  └─ requirements.txt       # Python dependencies
+├─ frontend/                 # Vue 3 + Vite frontend
 │  ├─ src/
 │  ├─ package.json
-│  └─ vite.config.js         # build 输出到 backend/static/spa
-├─ Simulator/                # 机器人仿真脚本
+│  └─ vite.config.js         # Build output: backend/static/spa
+├─ Simulator/                # Robot simulation scripts
 └─ LICENSE
 ```
 
-## 环境要求
+## Requirements
 
-- Python 3.10+（建议）
+- Python 3.10+ (recommended)
 - Node.js 18+
-- 可选：CUDA 环境（若需 GPU 训练/推理）
-- 数据库
-  - 默认可使用 SQLite
-  - 也可通过配置切换 MySQL
+- Optional: CUDA runtime for GPU inference/training
+- Database
+  - SQLite by default
+  - MySQL supported via config overrides
 
-## 后端快速开始
+## Backend Quick Start
 
-1. 创建并激活 Python 环境。
-2. 安装依赖。
-3. 启动服务。
+1. Create and activate your Python environment.
+2. Install backend dependencies.
+3. Start the backend service.
 
 ```bash
 cd backend
@@ -72,17 +72,17 @@ pip install -r requirements.txt
 python app.py
 ```
 
-启动后访问：
+After startup:
 - http://127.0.0.1:5000
-- 健康检查：http://127.0.0.1:5000/health
+- Health endpoint: http://127.0.0.1:5000/health
 
-说明：
-- 服务启动时会自动执行 `db.create_all()`。
-- 若数据库中无用户，会自动创建引导管理员账号（请在生产环境立即改密）。
+Notes:
+- `db.create_all()` runs at startup.
+- If there are no users, a bootstrap admin account is auto-created (change credentials immediately in production).
 
-## 前端开发与构建
+## Frontend Development and Build
 
-开发模式：
+Development mode:
 
 ```bash
 cd frontend
@@ -90,25 +90,25 @@ npm install
 npm run dev
 ```
 
-默认通过 Vite 代理转发 `/api` 到 `http://127.0.0.1:5000`。
+Vite proxies `/api` requests to `http://127.0.0.1:5000` by default.
 
-生产构建：
+Production build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-构建产物输出到 `backend/static/spa`，由后端统一托管。
+Build artifacts are written to `backend/static/spa` and served by the backend.
 
-## 配置说明
+## Configuration
 
-后端配置优先级：
-1. 环境变量
+Backend config precedence:
+1. Environment variables
 2. `backend/runtime_config.yaml`
-3. `backend/config.py` 默认值
+3. Defaults in `backend/config.py`
 
-常用项：
+Common settings:
 - `SQLALCHEMY_DATABASE_URI` / `DATABASE_URL`
 - `YOLO_MODEL_PATH`
 - `YOLO_CONF_THRESHOLD`
@@ -116,24 +116,24 @@ npm run build
 - `TRAIN_MAX_CONTENT_LENGTH`
 - `CAPTCHA_ENABLED`
 
-注意：
-- `runtime_config.yaml` 默认示例是 MySQL（`trashdet`）。
-- 若本地没有对应库，可改为 SQLite URI，或移除 MySQL 配置段。
+Important:
+- The default `runtime_config.yaml` sample uses MySQL (`trashdet`).
+- If that DB does not exist locally, switch to SQLite URI or remove MySQL entries.
 
-## 主要接口
+## Core APIs
 
-检测相关：
-- `GET /api/detect/dependencies` 检查检测依赖状态
-- `POST /api/detect` 图片检测
-- `POST /api/detect/video` 视频异步检测
-- `GET /api/detect/video/status/<task_id>` 查询视频检测状态
-- `POST /api/detect/ingest` 接收外部检测结果入库
+Detection:
+- `GET /api/detect/dependencies` dependency health for detection runtime
+- `POST /api/detect` image detection
+- `POST /api/detect/video` async video detection
+- `GET /api/detect/video/status/<task_id>` video task status
+- `POST /api/detect/ingest` ingest externally produced detection results
 
-统计相关：
-- `GET /api/stats/summary` 获取汇总统计
-- `GET /api/stats/hotspots` 获取热点分析
+Statistics:
+- `GET /api/stats/summary`
+- `GET /api/stats/hotspots`
 
-机器人相关：
+Robot:
 - `POST /api/robot/register`
 - `POST /api/robot/heartbeat`
 - `POST /api/robot/status_update`
@@ -141,59 +141,59 @@ npm run build
 - `POST /api/robot/navigate`
 - `GET /api/robot/list`
 
-训练相关：
+Training:
 - `GET /api/train/config`
 - `POST /api/train/start`
 - `GET /api/train/status/<job_id>`
 - `GET /api/train/status`
 
-Web 会话与业务接口（节选）：
+Web session and data APIs (excerpt):
 - `GET /api/web/session`
 - `POST /api/web/login`
 - `POST /api/web/register`
 - `POST /api/web/logout`
 - `GET /api/web/tasks`
 
-## 模型与训练
+## Model and Training Workflow
 
-- 推理器位于 `backend/inference/yolo_detector.py`。
-- 训练任务通过 `POST /api/train/start` 异步执行。
-- 训练数据需上传 ZIP，支持自定义权重 `.pt`。
-- 返回结果中会包含训练产出目录与权重提示路径。
+- Inference implementation is in `backend/inference/yolo_detector.py`.
+- Training is triggered asynchronously by `POST /api/train/start`.
+- Dataset upload requires ZIP; custom `.pt` weight upload is supported.
+- Job result includes output folder and a best-weight hint path.
 
-## 机器人与仿真
+## Robot Integration and Simulation
 
-- 机器人固件示例位于 `backend/Clean_Robot/`。
-- 桌面仿真脚本位于 `Simulator/`。
-- 后端通过机器人 API 提供心跳、状态、导航与控制通道。
+- Robot firmware examples are under `backend/Clean_Robot/`.
+- Desktop simulation scripts are under `Simulator/`.
+- Backend robot APIs provide heartbeat, status sync, navigation, and control channels.
 
-## 测试
+## Testing
 
-在后端目录执行：
+Run full backend unit tests:
 
 ```bash
 cd backend
 python -m unittest discover -s test -p "test_*.py"
 ```
 
-若环境缺少完整依赖，可先运行基础测试：
+If your environment is missing optional dependencies, run baseline tests first:
 
 ```bash
 cd backend
 python -m unittest -q test.test_config test.test_ml_algorithm
 ```
 
-## 常见问题
+## Troubleshooting
 
-- 检测接口返回依赖缺失
-  - 先调用 `GET /api/detect/dependencies` 查看缺失包与安装建议。
-- 启动时报 MySQL 库不存在
-  - 检查 `backend/runtime_config.yaml` 中 database 配置，改为可用库或 SQLite。
-- 训练上传被 413 拒绝
-  - 增大 `TRAIN_MAX_CONTENT_LENGTH`，并保证 `MAX_CONTENT_LENGTH` 不小于该值。
-- 前端样式或资源异常
-  - 确保使用 `frontend` 构建产物，并由后端 `backend/static/spa` 提供静态资源。
+- Detection API reports missing dependencies
+  - Call `GET /api/detect/dependencies` for missing packages and install hints.
+- Startup fails with unknown MySQL database
+  - Check `backend/runtime_config.yaml` database block; switch to a valid DB or SQLite.
+- Training upload rejected with HTTP 413
+  - Increase `TRAIN_MAX_CONTENT_LENGTH` and ensure `MAX_CONTENT_LENGTH >= TRAIN_MAX_CONTENT_LENGTH`.
+- Frontend style/resource mismatch
+  - Use built artifacts from `frontend` and serve from `backend/static/spa`.
 
-## 许可证
+## License
 
-本项目采用 MIT 协议，详见 `LICENSE`。
+This project is licensed under MIT. See `LICENSE` for details.

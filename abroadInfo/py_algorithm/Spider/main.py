@@ -150,13 +150,43 @@ def save_to_csv(rows: List[Dict[str, str]], output_path: str = "admission_requir
 
 async def main() -> None:
     seed_urls = [
+        # 英国
         "https://www.ox.ac.uk/admissions",
         "https://www.imperial.ac.uk/study/",
-        "https://www.mit.edu/admissions-aid/",
         "https://www.ucl.ac.uk/prospective-students/",
+        "https://www.cam.ac.uk/admissions",
+        "https://www.ed.ac.uk/studying",
+        # 美国
+        "https://www.mit.edu/admissions-aid/",
+        "https://www.stanford.edu/admission/",
+        "https://www.harvard.edu/admissions-aid/",
+        "https://www.berkeley.edu/admissions",
+        # 澳大利亚
+        "https://www.unimelb.edu.au/study",
+        "https://www.sydney.edu.au/study.html",
+        "https://www.uq.edu.au/study/",
+        # 加拿大
+        "https://www.utoronto.ca/future-students",
+        "https://www.ubc.ca/admissions/",
+        "https://www.mcgill.ca/undergraduate-admissions/",
+        # 德国
+        "https://www.tum.de/en/studies/application/",
+        "https://www.hu-berlin.de/en/studies/admission",
+        # 法国
+        "https://www.sorbonne-universite.fr/en/education",
+        "https://www.psl.eu/en/education/admissions",
+        # 日本
+        "https://www.u-tokyo.ac.jp/en/prospective-students/",
+        "https://www.kyoto-u.ac.jp/en/education-campus/admissions",
+        # 新加坡
+        "https://www.nus.edu.sg/admissions",
+        "https://www.ntu.edu.sg/admissions",
+        # 中国 (香港)
+        "https://www.hku.hk/admission/",
+        "https://www.cuhk.edu.hk/adm/",
     ]
 
-    spider = AdmissionRequirementSpider(seed_urls=seed_urls, max_links_per_site=12)
+    spider = AdmissionRequirementSpider(seed_urls=seed_urls, max_links_per_site=20)
     data = await spider.crawl()
     save_to_csv(data)
 
