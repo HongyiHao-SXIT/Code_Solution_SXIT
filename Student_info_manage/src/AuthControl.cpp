@@ -10,8 +10,8 @@
 
 namespace {
 
-constexpr const char* kUserDbPath = "users.txt";
-constexpr const char* kHashedPrefix = "H:";
+constexpr const char *kUserDbPath = "users.txt";
+constexpr const char *kHashedPrefix = "H:";
 std::string gCurrentAccount;
 
 struct UserRecord {
@@ -24,7 +24,7 @@ struct UserRecord {
   bool passwordHashed = false;
 };
 
-std::string trimLeft(const std::string& input) {
+std::string trimLeft(const std::string &input) {
   size_t pos = 0;
   while (pos < input.size() &&
          std::isspace(static_cast<unsigned char>(input[pos]))) {
@@ -33,11 +33,11 @@ std::string trimLeft(const std::string& input) {
   return input.substr(pos);
 }
 
-std::string hashPassword(const std::string& password) {
+std::string hashPassword(const std::string &password) {
   return std::to_string(std::hash<std::string>{}(password));
 }
 
-bool validatePassword(const std::string& password) {
+bool validatePassword(const std::string &password) {
   if (password.length() < 8) {
     std::cerr << "Error: Password must be at least 8 characters long."
               << std::endl;
@@ -62,16 +62,16 @@ bool validatePassword(const std::string& password) {
   return true;
 }
 
-bool isValidEmail(const std::string& email) {
+bool isValidEmail(const std::string &email) {
   return !email.empty() && email.find('@') != std::string::npos;
 }
 
-bool isValidPhone(const std::string& phone) {
+bool isValidPhone(const std::string &phone) {
   return phone.length() == 11 &&
          phone.find_first_not_of("0123456789") == std::string::npos;
 }
 
-bool parseModernLine(const std::string& line, UserRecord& record) {
+bool parseModernLine(const std::string &line, UserRecord &record) {
   std::vector<std::string> fields;
   std::string field;
   std::istringstream iss(line);
@@ -98,7 +98,7 @@ bool parseModernLine(const std::string& line, UserRecord& record) {
   return true;
 }
 
-bool parseLegacyLine(const std::string& line, UserRecord& record) {
+bool parseLegacyLine(const std::string &line, UserRecord &record) {
   std::istringstream iss(line);
   if (!(iss >> record.account >> record.password >> record.name >>
         record.email >> record.phone)) {
@@ -112,7 +112,7 @@ bool parseLegacyLine(const std::string& line, UserRecord& record) {
   return true;
 }
 
-std::vector<UserRecord> loadUsers(bool& fileAvailable) {
+std::vector<UserRecord> loadUsers(bool &fileAvailable) {
   std::ifstream readFile(kUserDbPath);
   if (!readFile.is_open()) {
     fileAvailable = false;
@@ -135,13 +135,13 @@ std::vector<UserRecord> loadUsers(bool& fileAvailable) {
   return users;
 }
 
-bool saveUsers(const std::vector<UserRecord>& users) {
+bool saveUsers(const std::vector<UserRecord> &users) {
   std::ofstream writeFile(kUserDbPath, std::ios::trunc);
   if (!writeFile.is_open()) {
     return false;
   }
 
-  for (const auto& user : users) {
+  for (const auto &user : users) {
     const std::string finalHash =
         user.passwordHashed ? user.password : hashPassword(user.password);
     writeFile << user.account << '\t' << kHashedPrefix << finalHash << '\t'
@@ -152,15 +152,15 @@ bool saveUsers(const std::vector<UserRecord>& users) {
   return true;
 }
 
-bool isPasswordMatched(const UserRecord& user,
-                       const std::string& inputPassword) {
+bool isPasswordMatched(const UserRecord &user,
+                       const std::string &inputPassword) {
   if (user.passwordHashed) {
     return user.password == hashPassword(inputPassword);
   }
   return user.password == inputPassword;
 }
 
-}  // namespace
+} // namespace
 
 bool login() {
   std::string inputAccount, inputPassword;
@@ -180,7 +180,7 @@ bool login() {
   bool isAuthenticated = false;
   bool needRewrite = false;
 
-  for (auto& user : users) {
+  for (auto &user : users) {
     if (user.account == inputAccount &&
         isPasswordMatched(user, inputPassword)) {
       isAuthenticated = true;
@@ -267,7 +267,7 @@ bool registerUser() {
   bool fileAvailable = false;
   std::vector<UserRecord> users = loadUsers(fileAvailable);
 
-  for (const auto& user : users) {
+  for (const auto &user : users) {
     if (user.account == account) {
       std::cerr << "Error: Account already exists." << std::endl;
       return false;
@@ -316,7 +316,7 @@ bool forgetAccount() {
 
   bool isFound = false;
 
-  for (const auto& user : users) {
+  for (const auto &user : users) {
     if (user.email == inputEmail) {
       isFound = true;
       std::cout << "Account found: " << user.account << std::endl;
@@ -353,7 +353,7 @@ bool forgetPassword() {
 
   bool isFound = false;
 
-  for (auto& user : users) {
+  for (auto &user : users) {
     if (user.account == inputAccount && user.email == inputEmail) {
       isFound = true;
 
@@ -386,7 +386,7 @@ bool forgetPassword() {
   return true;
 }
 
-bool getCurrentUser(User& currentUser) {
+bool getCurrentUser(User &currentUser) {
   if (gCurrentAccount.empty()) {
     std::cerr << "Error: No user is currently logged in." << std::endl;
     return false;
@@ -399,10 +399,10 @@ bool getCurrentUser(User& currentUser) {
     return false;
   }
 
-  for (const auto& user : users) {
+  for (const auto &user : users) {
     if (user.account == gCurrentAccount) {
-      currentUser = User(user.name, user.email, user.account, "",
-                         user.phone, user.major);
+      currentUser =
+          User(user.name, user.email, user.account, "", user.phone, user.major);
       return true;
     }
   }
@@ -411,7 +411,7 @@ bool getCurrentUser(User& currentUser) {
   return false;
 }
 
-bool updateCurrentUser(const User& updatedUser) {
+bool updateCurrentUser(const User &updatedUser) {
   if (gCurrentAccount.empty()) {
     std::cerr << "Error: No user is currently logged in." << std::endl;
     return false;
@@ -426,7 +426,8 @@ bool updateCurrentUser(const User& updatedUser) {
     return false;
   }
   if (!isValidPhone(updatedUser.getPhone())) {
-    std::cerr << "Error: Phone number must be exactly 11 digits and contain only numbers."
+    std::cerr << "Error: Phone number must be exactly 11 digits and contain "
+                 "only numbers."
               << std::endl;
     return false;
   }
@@ -442,7 +443,7 @@ bool updateCurrentUser(const User& updatedUser) {
     return false;
   }
 
-  for (auto& user : users) {
+  for (auto &user : users) {
     if (user.account == gCurrentAccount) {
       user.name = updatedUser.getName();
       user.email = updatedUser.getEmail();
@@ -468,15 +469,15 @@ bool forget() {
   std::cin >> choice;
 
   switch (std::toupper(static_cast<unsigned char>(choice))) {
-    case 'A':
-      return forgetAccount();
-    case 'B':
-      return forgetPassword();
-    case 'C':
-      std::cout << "Exiting forget services..." << std::endl;
-      return false;
-    default:
-      std::cerr << "Error: Invalid option." << std::endl;
-      return false;
+  case 'A':
+    return forgetAccount();
+  case 'B':
+    return forgetPassword();
+  case 'C':
+    std::cout << "Exiting forget services..." << std::endl;
+    return false;
+  default:
+    std::cerr << "Error: Invalid option." << std::endl;
+    return false;
   }
 }

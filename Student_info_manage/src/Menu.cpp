@@ -16,15 +16,15 @@
 
 namespace {
 
-constexpr const char* kCourseDbPath = "courses.txt";
-constexpr const char* kGradeDbPath = "grades.txt";
-constexpr const char* kUserDbPath = "users.txt";
-constexpr const char* kAdminGradeKey = "admin123";
+constexpr const char *kCourseDbPath = "courses.txt";
+constexpr const char *kGradeDbPath = "grades.txt";
+constexpr const char *kUserDbPath = "users.txt";
+constexpr const char *kAdminGradeKey = "admin123";
 
 std::vector<Grade> loadGrades();
 std::vector<Course> loadCourses();
-const Course* findCourseByCode(const std::vector<Course>& courses,
-                               const std::string& courseCode);
+const Course *findCourseByCode(const std::vector<Course> &courses,
+                               const std::string &courseCode);
 
 char readChoice() {
   char choice = '\0';
@@ -32,21 +32,21 @@ char readChoice() {
   return static_cast<char>(std::toupper(static_cast<unsigned char>(choice)));
 }
 
-std::string readLineInput(const std::string& prompt) {
+std::string readLineInput(const std::string &prompt) {
   std::string input;
   std::cout << prompt;
   std::getline(std::cin >> std::ws, input);
   return input;
 }
 
-std::string readOptionalLineInput(const std::string& prompt) {
+std::string readOptionalLineInput(const std::string &prompt) {
   std::string input;
   std::cout << prompt;
   std::getline(std::cin, input);
   return input;
 }
 
-bool parseInt(const std::string& text, int& value) {
+bool parseInt(const std::string &text, int &value) {
   try {
     size_t parsedChars = 0;
     const long long parsedValue = std::stoll(text, &parsedChars);
@@ -65,8 +65,9 @@ bool parseInt(const std::string& text, int& value) {
 }
 
 std::string normalizeCode(std::string courseCode) {
-  std::transform(courseCode.begin(), courseCode.end(), courseCode.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
+  std::transform(
+      courseCode.begin(), courseCode.end(), courseCode.begin(),
+      [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
   return courseCode;
 }
 
@@ -88,14 +89,14 @@ void ensureGradeFileExists() {
   std::ofstream createFile(kGradeDbPath, std::ios::app);
 }
 
-bool saveGrades(const std::vector<Grade>& grades) {
+bool saveGrades(const std::vector<Grade> &grades) {
   std::ofstream writeFile(kGradeDbPath, std::ios::trunc);
   if (!writeFile.is_open()) {
     std::cerr << "Error: Could not open grade database file." << std::endl;
     return false;
   }
 
-  for (const auto& grade : grades) {
+  for (const auto &grade : grades) {
     writeFile << grade.getAccount() << '\t' << grade.getCourseCode() << '\t'
               << grade.getScore() << '\n';
   }
@@ -103,7 +104,7 @@ bool saveGrades(const std::vector<Grade>& grades) {
   return true;
 }
 
-bool accountExists(const std::string& account) {
+bool accountExists(const std::string &account) {
   std::ifstream readFile(kUserDbPath);
   if (!readFile.is_open()) {
     return false;
@@ -130,7 +131,7 @@ bool accountExists(const std::string& account) {
   return false;
 }
 
-bool isValidScore(const std::string& scoreText) {
+bool isValidScore(const std::string &scoreText) {
   if (scoreText.empty()) {
     return false;
   }
@@ -154,16 +155,16 @@ void showAllGradeRecords() {
     return;
   }
 
-  for (const auto& grade : grades) {
+  for (const auto &grade : grades) {
     std::cout << "Account: " << grade.getAccount()
               << " | Course: " << grade.getCourseCode()
               << " | Score: " << grade.getScore() << std::endl;
   }
 }
 
-bool upsertStudentGrade(const std::string& account,
-                        const std::string& courseCode,
-                        const std::string& scoreText) {
+bool upsertStudentGrade(const std::string &account,
+                        const std::string &courseCode,
+                        const std::string &scoreText) {
   if (!accountExists(account)) {
     std::cout << "Account not found." << std::endl;
     return false;
@@ -177,7 +178,7 @@ bool upsertStudentGrade(const std::string& account,
 
   const std::vector<Course> courses = loadCourses();
   const std::string normalizedCode = normalizeCode(courseCode);
-  const Course* course = findCourseByCode(courses, normalizedCode);
+  const Course *course = findCourseByCode(courses, normalizedCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return false;
@@ -189,7 +190,7 @@ bool upsertStudentGrade(const std::string& account,
   }
 
   std::vector<Grade> grades = loadGrades();
-  for (auto& grade : grades) {
+  for (auto &grade : grades) {
     if (grade.getAccount() == account &&
         grade.getCourseCode() == normalizedCode) {
       grade.setScore(scoreText);
@@ -216,30 +217,30 @@ void adminGradeEntryMenu() {
     std::cout << "> ";
 
     switch (readChoice()) {
-      case '1':
-        showAllGradeRecords();
-        break;
-      case '2': {
-        const std::string account = readLineInput("Student account: ");
-        const std::string courseCode = readLineInput("Course code: ");
-        const std::string score = readLineInput("Score (0-100): ");
-        if (upsertStudentGrade(account, courseCode, score)) {
-          std::cout << "Grade saved successfully." << std::endl;
-        } else {
-          std::cout << "Failed to save grade." << std::endl;
-        }
-        break;
+    case '1':
+      showAllGradeRecords();
+      break;
+    case '2': {
+      const std::string account = readLineInput("Student account: ");
+      const std::string courseCode = readLineInput("Course code: ");
+      const std::string score = readLineInput("Score (0-100): ");
+      if (upsertStudentGrade(account, courseCode, score)) {
+        std::cout << "Grade saved successfully." << std::endl;
+      } else {
+        std::cout << "Failed to save grade." << std::endl;
       }
-      case '3':
-        return;
-      default:
-        std::cout << "Invalid option, please try again." << std::endl;
-        break;
+      break;
+    }
+    case '3':
+      return;
+    default:
+      std::cout << "Invalid option, please try again." << std::endl;
+      break;
     }
   }
 }
 
-std::string joinStudents(const std::vector<std::string>& students) {
+std::string joinStudents(const std::vector<std::string> &students) {
   std::ostringstream oss;
   for (size_t index = 0; index < students.size(); ++index) {
     if (index != 0) {
@@ -250,7 +251,7 @@ std::string joinStudents(const std::vector<std::string>& students) {
   return oss.str();
 }
 
-std::vector<std::string> splitStudents(const std::string& serializedStudents) {
+std::vector<std::string> splitStudents(const std::string &serializedStudents) {
   std::vector<std::string> students;
   std::istringstream iss(serializedStudents);
   std::string student;
@@ -262,17 +263,17 @@ std::vector<std::string> splitStudents(const std::string& serializedStudents) {
   return students;
 }
 
-bool saveCourses(const std::vector<Course>& courses) {
+bool saveCourses(const std::vector<Course> &courses) {
   std::ofstream writeFile(kCourseDbPath, std::ios::trunc);
   if (!writeFile.is_open()) {
     std::cerr << "Error: Could not open course database file." << std::endl;
     return false;
   }
 
-  for (const auto& course : courses) {
-    writeFile << course.getCourseCode() << '\t' << course.getCourseName() << '\t'
-              << course.getInstructor() << '\t' << course.getCredits() << '\t'
-              << course.getMaxStudents() << '\t'
+  for (const auto &course : courses) {
+    writeFile << course.getCourseCode() << '\t' << course.getCourseName()
+              << '\t' << course.getInstructor() << '\t' << course.getCredits()
+              << '\t' << course.getMaxStudents() << '\t'
               << joinStudents(course.getEnrolledStudents()) << '\n';
   }
   return true;
@@ -343,8 +344,8 @@ std::vector<Course> loadCourses() {
       continue;
     }
 
-    Course course(fields[1], normalizeCode(fields[0]), fields[2],
-                  credits, maxStudents);
+    Course course(fields[1], normalizeCode(fields[0]), fields[2], credits,
+                  maxStudents);
     if (fields.size() >= 6) {
       course.setEnrolledStudents(splitStudents(fields[5]));
     }
@@ -359,10 +360,10 @@ std::vector<Course> loadCourses() {
   return courses;
 }
 
-Course* findCourseByCode(std::vector<Course>& courses,
-                         const std::string& courseCode) {
+Course *findCourseByCode(std::vector<Course> &courses,
+                         const std::string &courseCode) {
   const std::string normalizedCode = normalizeCode(courseCode);
-  for (auto& course : courses) {
+  for (auto &course : courses) {
     if (course.getCourseCode() == normalizedCode) {
       return &course;
     }
@@ -370,10 +371,10 @@ Course* findCourseByCode(std::vector<Course>& courses,
   return nullptr;
 }
 
-const Course* findCourseByCode(const std::vector<Course>& courses,
-                               const std::string& courseCode) {
+const Course *findCourseByCode(const std::vector<Course> &courses,
+                               const std::string &courseCode) {
   const std::string normalizedCode = normalizeCode(courseCode);
-  for (const auto& course : courses) {
+  for (const auto &course : courses) {
     if (course.getCourseCode() == normalizedCode) {
       return &course;
     }
@@ -381,11 +382,11 @@ const Course* findCourseByCode(const std::vector<Course>& courses,
   return nullptr;
 }
 
-const Grade* findGradeByCourseCode(const std::vector<Grade>& grades,
-                                   const std::string& account,
-                                   const std::string& courseCode) {
+const Grade *findGradeByCourseCode(const std::vector<Grade> &grades,
+                                   const std::string &account,
+                                   const std::string &courseCode) {
   const std::string normalizedCode = normalizeCode(courseCode);
-  for (const auto& grade : grades) {
+  for (const auto &grade : grades) {
     if (grade.getAccount() == account &&
         grade.getCourseCode() == normalizedCode) {
       return &grade;
@@ -394,11 +395,11 @@ const Grade* findGradeByCourseCode(const std::vector<Grade>& grades,
   return nullptr;
 }
 
-void printCourseList(const std::vector<Course>& courses,
-                     const std::string& currentAccount,
+void printCourseList(const std::vector<Course> &courses,
+                     const std::string &currentAccount,
                      bool onlyEnrolledCourses) {
   bool hasOutput = false;
-  for (const auto& course : courses) {
+  for (const auto &course : courses) {
     const bool isEnrolled = course.isStudentEnrolled(currentAccount);
     if (onlyEnrolledCourses && !isEnrolled) {
       continue;
@@ -453,7 +454,7 @@ void enrollCurrentStudent() {
   std::cout << "Enter course code to enroll: ";
   std::cin >> courseCode;
 
-  Course* course = findCourseByCode(courses, courseCode);
+  Course *course = findCourseByCode(courses, courseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
@@ -479,7 +480,7 @@ void dropCurrentStudent() {
   std::cout << "Enter course code to drop: ";
   std::cin >> courseCode;
 
-  Course* course = findCourseByCode(courses, courseCode);
+  Course *course = findCourseByCode(courses, courseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
@@ -502,13 +503,13 @@ void showAllGrades() {
 
   bool hasEnrolledCourses = false;
   std::cout << "\n-- Grade Overview --" << std::endl;
-  for (const auto& course : courses) {
+  for (const auto &course : courses) {
     if (!course.isStudentEnrolled(currentAccount)) {
       continue;
     }
 
     hasEnrolledCourses = true;
-    const Grade* grade =
+    const Grade *grade =
         findGradeByCourseCode(grades, currentAccount, course.getCourseCode());
     std::cout << '[' << course.getCourseCode() << "] " << course.getCourseName()
               << " | Grade: "
@@ -536,7 +537,7 @@ void showSpecificCourseGrade() {
   std::cin >> courseCode;
   courseCode = normalizeCode(courseCode);
 
-  const Course* course = findCourseByCode(courses, courseCode);
+  const Course *course = findCourseByCode(courses, courseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
@@ -547,7 +548,8 @@ void showSpecificCourseGrade() {
     return;
   }
 
-  const Grade* grade = findGradeByCourseCode(grades, currentAccount, courseCode);
+  const Grade *grade =
+      findGradeByCourseCode(grades, currentAccount, courseCode);
   std::cout << '[' << course->getCourseCode() << "] " << course->getCourseName()
             << " | Grade: "
             << (grade == nullptr ? "Not graded yet" : grade->getScore())
@@ -606,7 +608,7 @@ void updateCurrentUserInfo() {
   }
 }
 
-}  // namespace
+} // namespace
 
 bool Menu() {
   while (true) {
@@ -621,27 +623,27 @@ bool Menu() {
     std::cout << "> ";
 
     switch (readChoice()) {
-      case 'A':
-        InfoMenu();
-        break;
-      case 'B':
-        showMyCourses();
-        break;
-      case 'C':
-        GradeMenu();
-        break;
-      case 'D':
-        CourseMenu();
-        break;
-      case 'E':
-        logoutUser();
-        std::cout << "Logged out." << std::endl;
-        return false;
-      case 'F':
-        return true;
-      default:
-        std::cout << "Invalid option, please try again." << std::endl;
-        break;
+    case 'A':
+      InfoMenu();
+      break;
+    case 'B':
+      showMyCourses();
+      break;
+    case 'C':
+      GradeMenu();
+      break;
+    case 'D':
+      CourseMenu();
+      break;
+    case 'E':
+      logoutUser();
+      std::cout << "Logged out." << std::endl;
+      return false;
+    case 'F':
+      return true;
+    default:
+      std::cout << "Invalid option, please try again." << std::endl;
+      break;
     }
   }
 }
@@ -656,20 +658,20 @@ void CourseMenu() {
     std::cout << "> ";
 
     switch (readChoice()) {
-      case '1':
-        showAvailableCourses();
-        break;
-      case '2':
-        enrollCurrentStudent();
-        break;
-      case '3':
-        dropCurrentStudent();
-        break;
-      case '4':
-        return;
-      default:
-        std::cout << "Invalid option, please try again." << std::endl;
-        break;
+    case '1':
+      showAvailableCourses();
+      break;
+    case '2':
+      enrollCurrentStudent();
+      break;
+    case '3':
+      dropCurrentStudent();
+      break;
+    case '4':
+      return;
+    default:
+      std::cout << "Invalid option, please try again." << std::endl;
+      break;
     }
   }
 }
@@ -684,20 +686,20 @@ void GradeMenu() {
     std::cout << "> ";
 
     switch (readChoice()) {
-      case '1':
-        showAllGrades();
-        break;
-      case '2':
-        showSpecificCourseGrade();
-        break;
-      case '3':
-        adminGradeEntryMenu();
-        break;
-      case '4':
-        return;
-      default:
-        std::cout << "Invalid option, please try again." << std::endl;
-        break;
+    case '1':
+      showAllGrades();
+      break;
+    case '2':
+      showSpecificCourseGrade();
+      break;
+    case '3':
+      adminGradeEntryMenu();
+      break;
+    case '4':
+      return;
+    default:
+      std::cout << "Invalid option, please try again." << std::endl;
+      break;
     }
   }
 }
@@ -711,17 +713,17 @@ void InfoMenu() {
     std::cout << "> ";
 
     switch (readChoice()) {
-      case '1':
-        showCurrentUserInfo();
-        break;
-      case '2':
-        updateCurrentUserInfo();
-        break;
-      case '3':
-        return;
-      default:
-        std::cout << "Invalid option, please try again." << std::endl;
-        break;
+    case '1':
+      showCurrentUserInfo();
+      break;
+    case '2':
+      updateCurrentUserInfo();
+      break;
+    case '3':
+      return;
+    default:
+      std::cout << "Invalid option, please try again." << std::endl;
+      break;
     }
   }
 }

@@ -12,7 +12,7 @@ bool forgetAccount();
 bool forgetPassword();
 std::string getCurrentAccount();
 void logoutUser();
-bool getCurrentUser(User& currentUser);
-bool updateCurrentUser(const User& updatedUser);
+bool getCurrentUser(User &currentUser);
+bool updateCurrentUser(const User &updatedUser);
 
 #endif

@@ -4,9 +4,9 @@
 
 User::User() {}
 
-User::User(const std::string& name, const std::string& email,
-           const std::string& account, const std::string& password,
-           const std::string& phone, const std::string& major) {
+User::User(const std::string &name, const std::string &email,
+           const std::string &account, const std::string &password,
+           const std::string &phone, const std::string &major) {
   this->name = name;
   this->email = email;
   this->account = account;
@@ -27,19 +27,19 @@ std::string User::getPassword() const { return password; }
 
 std::string User::getPhone() const { return phone; }
 
-void User::setAccount(const std::string& account) { this->account = account; }
+void User::setAccount(const std::string &account) { this->account = account; }
 
-void User::setEmail(const std::string& email) { this->email = email; }
+void User::setEmail(const std::string &email) { this->email = email; }
 
-void User::setMajor(const std::string& major) { this->major = major; }
+void User::setMajor(const std::string &major) { this->major = major; }
 
-void User::setName(const std::string& name) { this->name = name; }
+void User::setName(const std::string &name) { this->name = name; }
 
-void User::setPassword(const std::string& password) {
+void User::setPassword(const std::string &password) {
   this->password = password;
 }
 
-void User::setPhone(const std::string& phone) { this->phone = phone; }
+void User::setPhone(const std::string &phone) { this->phone = phone; }
 
 void User::displayInfo() const {
   std::cout << "Name: " << name << std::endl;
