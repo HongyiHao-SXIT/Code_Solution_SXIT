@@ -9,7 +9,9 @@ async function parseJson(response) {
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok || payload.ok === false) {
-    const message = payload.message || payload.msg || payload.error || `Request failed: ${response.status}`
+    const message =
+      payload.message || payload.msg || payload.error ||
+      `Request failed: ${response.status}`
     const error = new Error(message)
     error.status = response.status
     error.payload = payload
@@ -19,14 +21,19 @@ async function parseJson(response) {
 }
 
 export async function requestJson(url, options = {}) {
+  const isFormData = options.body instanceof FormData
+
+  // 确保 options.headers 优先于默认值，避免 Content-Type 被意外覆盖
+  const headers = {
+    ...JSON_HEADERS,
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(options.headers || {}),
+  }
+
   const response = await fetch(url, {
     credentials: 'same-origin',
     ...options,
-    headers: {
-      ...JSON_HEADERS,
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(options.headers || {}),
-    },
+    headers,
   })
 
   return parseJson(response)
@@ -43,7 +50,7 @@ export function postJson(url, body) {
   })
 }
 
-export async function postForm(url, formData) {
+export function postForm(url, formData) {
   return requestJson(url, {
     method: 'POST',
     body: formData,

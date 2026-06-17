@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from flask import jsonify, request
+from flask import request
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.response_helpers import json_error as _json_error_impl, json_from_request as _json_from_request_impl, json_ok as _json_ok_impl
+from api.response_helpers import json_error
+
 from database.db import db
 from database.models import Robot
 
@@ -82,37 +83,13 @@ def resolve_robot_status(robot, now=None, timeout=HEARTBEAT_TIMEOUT):
     return robot.status or 'ONLINE', False
 
 
-def _json_ok(payload=None, status_code=200):
-    return _json_ok_impl(payload, status_code)
-
-
-def _json_error(message, status_code=400):
-    return _json_error_impl(message, status_code)
-
-
-def _json_from_request():
-    return _json_from_request_impl()
-
-
-def _get_robot_or_none(robot_id):
-    if robot_id is None:
-        return None
-    return db.session.get(Robot, robot_id)
-
-
-def _get_robot_by_device_id(device_id):
-    if not device_id:
-        return None
-    return Robot.query.filter_by(device_id=device_id).first()
-
-
 def _commit_or_error(action_text):
     try:
         db.session.commit()
         return None
     except SQLAlchemyError:
         db.session.rollback()
-        return _json_error(f'{action_text}失败，请稍后重试', 500)
+        return json_error(f'{action_text}失败，请稍后重试', 500)
 
 
 def _normalize_command(command_value):
@@ -141,9 +118,21 @@ def _build_robot_item(robot, status):
     }
 
 
+def _get_robot_or_none(robot_id):
+    if robot_id is None:
+        return None
+    return db.session.get(Robot, robot_id)
+
+
+def _get_robot_by_device_id(device_id):
+    if not device_id:
+        return None
+    return Robot.query.filter_by(device_id=device_id).first()
+
+
 def _find_robot_by_device_or_error(payload):
     device_id = payload.get('device_id')
     robot = _get_robot_by_device_id(device_id)
     if not robot:
-        return None, jsonify({'ok': False, 'msg': '设备未注册'}), 403
+        return None, *json_error('设备未注册', 403)
     return robot, None, None

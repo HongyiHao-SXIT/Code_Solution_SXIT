@@ -2,17 +2,11 @@ from flask import jsonify, request
 
 
 def json_ok(payload=None, status_code=200):
+    """返回 {ok: True, ...payload} 的 JSON 响应。"""
     body = {'ok': True}
     if payload:
         body.update(payload)
     return jsonify(body), status_code
-
-
-def json_success(payload=None):
-    body = {'ok': True, 'status': 'success'}
-    if payload:
-        body.update(payload)
-    return jsonify(body)
 
 
 def json_error(message, status_code=400, message_key='msg'):

@@ -5,6 +5,7 @@ from threading import Lock
 from flask import Blueprint, jsonify, request
 from api.auth_helpers import get_session_user as _get_session_user, is_admin_user as _is_admin_user
 from api.geo_utils import is_valid_coordinate, reverse_geocode, _to_float_or_none as to_float, _to_int_or_none as to_int
+from api.response_helpers import json_error, json_from_request, json_ok
 from api.robot_helpers import (
     CONTROL_COMMANDS,
     HEARTBEAT_TIMEOUT,
@@ -13,9 +14,6 @@ from api.robot_helpers import (
     _find_robot_by_device_or_error,
     _get_robot_by_device_id,
     _get_robot_or_none,
-    _json_error,
-    _json_from_request,
-    _json_ok,
     _normalize_command,
     apply_robot_fields,
     read_client_ip,
@@ -85,41 +83,6 @@ def _resolve_robot_address(lat, lng):
     return resolved
 
 
-def _build_realtime_payload(robot, payload, default_status=None):
-    snapshot = _get_robot_realtime_snapshot(getattr(robot, 'id', None)) or {}
-    now = datetime.now()
-
-    payload_lat = to_float(payload.get('lat'))
-    payload_lng = to_float(payload.get('lng'))
-    if payload_lat is not None and not (-90.0 <= payload_lat <= 90.0):
-        payload_lat = None
-    if payload_lng is not None and not (-180.0 <= payload_lng <= 180.0):
-        payload_lng = None
-
-    lat = payload_lat if payload_lat is not None else snapshot.get('lat')
-    lng = payload_lng if payload_lng is not None else snapshot.get('lng')
-    battery = to_int(payload.get('battery'))
-    if battery is None:
-        battery = snapshot.get('battery')
-    ip_address = read_client_ip() or snapshot.get('ip_address')
-
-    if payload.get('status') is not None:
-        status = payload.get('status')
-    elif default_status is not None:
-        status = default_status
-    else:
-        status = snapshot.get('status') or getattr(robot, 'status', None)
-
-    return {
-        'status': status,
-        'lat': lat,
-        'lng': lng,
-        'battery': battery,
-        'ip_address': ip_address,
-        'last_heartbeat': now,
-    }
-
-
 def _get_robot_realtime_snapshot(robot_id):
     if robot_id is None:
         return None
@@ -158,37 +121,32 @@ def _overlay_realtime_snapshot(robot_item, snapshot, timeout_seconds):
 def _require_ui_user():
     user = _get_session_user()
     if not user:
-        return None, _json_error('请先登录', 401)
+        return None, json_error('请先登录', 401)
     return user, None
 
 
-def _resolve_robot_from_payload(payload):
+def _resolve_robot_and_access(payload):
     robot_id = payload.get('id')
     if robot_id is not None:
         try:
-            return _get_robot_or_none(int(robot_id))
+            robot = _get_robot_or_none(int(robot_id))
         except (TypeError, ValueError):
-            return None
-    device_id = str(payload.get('device_id') or '').strip()
-    if device_id:
-        return _get_robot_by_device_id(device_id)
-    return None
-
-
-def _resolve_robot_and_access(payload):
-    robot = _resolve_robot_from_payload(payload)
+            robot = None
+    else:
+        device_id = str(payload.get('device_id') or '').strip()
+        robot = _get_robot_by_device_id(device_id) if device_id else None
     if not robot:
-        return None, _json_error('机器人不存在', 404)
+        return None, json_error('机器人不存在', 404)
 
     current_user = _get_session_user()
     if current_user:
         if not _can_access_robot(current_user, robot):
-            return None, _json_error('无权限访问该机器人', 403)
+            return None, json_error('无权限访问该机器人', 403)
         return robot, None
 
     device_id = str(payload.get('device_id') or '').strip()
     if not device_id or device_id != str(getattr(robot, 'device_id', '') or ''):
-        return None, _json_error('请先登录', 401)
+        return None, json_error('请先登录', 401)
     return robot, None
 
 
@@ -287,7 +245,8 @@ def _sync_device_state(payload, default_status, dispatch_log_label, commit_actio
     if not robot:
         if error_body is not None and error_code is not None:
             return None, error_body, error_code
-        return None, *_json_error('设备未注册', 403)
+        body, code = json_error('设备未注册', 403)
+        return None, body, code
 
     assert robot is not None
     apply_robot_fields(robot, payload, default_status=default_status)
@@ -308,7 +267,7 @@ def _sync_device_state(payload, default_status, dispatch_log_label, commit_actio
     _update_robot_realtime_snapshot(robot)
     commit_error = _commit_or_error(commit_action_text)
     if commit_error:
-        return None, *commit_error
+        return None, commit_error
 
     remaining_waypoints = _build_running_waypoints_payload(running_task)
     return {
@@ -323,7 +282,7 @@ def _sync_device_state(payload, default_status, dispatch_log_label, commit_actio
 
 @robot_bp.route('/heartbeat', methods=['POST'])
 def sync_heartbeat():
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
     response_payload, error_body, error_code = _sync_device_state(
@@ -331,12 +290,12 @@ def sync_heartbeat():
         dispatch_log_label='heartbeat', commit_action_text='同步心跳')
     if error_body is not None and error_code is not None:
         return error_body, error_code
-    return _json_ok(response_payload)
+    return json_ok(response_payload)
 
 
 @robot_bp.route('/status_update', methods=['POST'])
 def sync_status():
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
     response_payload, error_body, error_code = _sync_device_state(
@@ -344,7 +303,7 @@ def sync_status():
         dispatch_log_label='status', commit_action_text='同步状态')
     if error_body is not None and error_code is not None:
         return error_body, error_code
-    return _json_ok(response_payload)
+    return json_ok(response_payload)
 
 
 @robot_bp.route('/register', methods=['POST'])
@@ -354,14 +313,14 @@ def create_robot():
         return auth_error
     assert current_user is not None
 
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
     try:
         device_id, name = validate_register_fields(payload)
     except ValueError as error:
-        return _json_error(str(error), 400)
+        return json_error(str(error), 400)
 
     if _get_robot_by_device_id(device_id):
         return jsonify({'ok': False, 'msg': '该设备 ID 已存在'}), 409
@@ -376,25 +335,25 @@ def create_robot():
 
 @robot_bp.route('/register_device', methods=['POST'])
 def create_robot_device_side():
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
     try:
         device_id, name = validate_register_fields(payload)
     except ValueError as error:
-        return _json_error(str(error), 400)
+        return json_error(str(error), 400)
 
     existing = _get_robot_by_device_id(device_id)
     if existing:
-        return _json_ok({'robot_id': existing.id, 'msg': '设备已存在'})
+        return json_ok({'robot_id': existing.id, 'msg': '设备已存在'})
 
     robot = Robot(device_id=device_id, name=name, status='OFFLINE', owner_user_id=None)
     db.session.add(robot)
     commit_error = _commit_or_error('设备注册')
     if commit_error:
         return commit_error
-    return _json_ok({'robot_id': robot.id})
+    return json_ok({'robot_id': robot.id})
 
 
 @robot_bp.route('/delete/<int:robot_id>', methods=['POST'])
@@ -406,15 +365,15 @@ def remove_robot(robot_id):
 
     robot = _get_robot_or_none(robot_id)
     if not robot:
-        return _json_error('未找到设备', 404)
+        return json_error('未找到设备', 404)
     if not _can_access_robot(current_user, robot):
-        return _json_error('无权限访问该机器人', 403)
+        return json_error('无权限访问该机器人', 403)
 
     db.session.delete(robot)
     commit_error = _commit_or_error('删除设备')
     if commit_error:
         return commit_error
-    return _json_ok()
+    return json_ok()
 
 
 @robot_bp.route('/address', methods=['GET'])
@@ -427,19 +386,19 @@ def get_robot_address():
     lat = to_float(request.args.get('lat'))
     lng = to_float(request.args.get('lng'))
     if lat is None or lng is None:
-        return _json_error('请提供有效的经纬度参数', 400)
+        return json_error('请提供有效的经纬度参数', 400)
     if not is_valid_coordinate(lat, lng):
-        return _json_error('坐标超出有效范围', 400)
+        return json_error('坐标超出有效范围', 400)
 
     address = _resolve_robot_address(lat, lng)
     if not address:
-        return _json_error('地址解析失败', 500)
-    return _json_ok({'address': address, 'lat': lat, 'lng': lng})
+        return json_error('地址解析失败', 500)
+    return json_ok({'address': address, 'lat': lat, 'lng': lng})
 
 
 @robot_bp.route('/navigate', methods=['POST'])
 def send_navigation():
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
@@ -451,25 +410,25 @@ def send_navigation():
     latitude = to_float(payload.get('lat'))
     longitude = to_float(payload.get('lng'))
     if latitude is None or longitude is None:
-        return _json_error('导航参数格式错误', 400)
+        return json_error('导航参数格式错误', 400)
     if not is_valid_coordinate(latitude, longitude):
-        return _json_error('导航坐标超出范围', 400)
+        return json_error('导航坐标超出范围', 400)
 
     apply_navigation_target(robot, latitude, longitude)
     commit_error = _commit_or_error('下发导航')
     if commit_error:
         return commit_error
-    return _json_ok({'msg': '目标已锁定'})
+    return json_ok({'msg': '目标已锁定'})
 
 
 @robot_bp.route('/commands', methods=['GET'])
 def list_control_commands():
-    return _json_ok({'commands': sorted(CONTROL_COMMANDS)})
+    return json_ok({'commands': sorted(CONTROL_COMMANDS)})
 
 
 @robot_bp.route('/control', methods=['POST'])
 def send_control():
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
@@ -480,15 +439,15 @@ def send_control():
 
     command = _normalize_command(payload.get('command'))
     if not command:
-        return _json_error('控制指令不能为空', 400)
+        return json_error('控制指令不能为空', 400)
     if command not in CONTROL_COMMANDS:
-        return _json_error('不支持的控制指令', 400)
+        return json_error('不支持的控制指令', 400)
 
     robot.next_command = command
     commit_error = _commit_or_error('下发控制')
     if commit_error:
         return commit_error
-    return _json_ok({'command': command})
+    return json_ok({'command': command})
 
 
 @robot_bp.route('/list', methods=['GET'])
@@ -539,7 +498,7 @@ def save_robot_changes():
         return auth_error
     assert current_user is not None
 
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
@@ -547,14 +506,14 @@ def save_robot_changes():
     if not robot:
         return jsonify({'ok': False, 'msg': '机器人不存在'}), 404
     if not _can_access_robot(current_user, robot):
-        return _json_error('无权限访问该机器人', 403)
+        return json_error('无权限访问该机器人', 403)
 
     try:
         apply_robot_update_payload(
             robot=robot, payload=payload,
             normalize_command=_normalize_command, control_commands=CONTROL_COMMANDS)
     except ValueError as error:
-        return _json_error(str(error), 400)
+        return json_error(str(error), 400)
 
     commit_error = _commit_or_error('更新设备')
     if commit_error:
@@ -569,24 +528,24 @@ def create_patrol_task():
         return auth_error
     assert current_user is not None
 
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
     robot_id = to_int(payload.get('robot_id'))
     if robot_id is None:
-        return _json_error('robot_id 参数错误', 400)
+        return json_error('robot_id 参数错误', 400)
 
     robot = _get_robot_or_none(robot_id)
     if not robot:
-        return _json_error('机器人不存在', 404)
+        return json_error('机器人不存在', 404)
     if not _can_access_robot(current_user, robot):
-        return _json_error('无权限访问该机器人', 403)
+        return json_error('无权限访问该机器人', 403)
 
     try:
         parsed = parse_patrol_task_payload(payload)
     except ValueError as error:
-        return _json_error(str(error), 400)
+        return json_error(str(error), 400)
 
     task = RobotPatrolTask(
         robot_id=robot.id, name=parsed['name'],
@@ -606,7 +565,7 @@ def create_patrol_task():
     commit_error = _commit_or_error('创建巡检任务')
     if commit_error:
         return commit_error
-    return _json_ok({'task': _serialize_patrol_task(task)})
+    return json_ok({'task': _serialize_patrol_task(task)})
 
 
 @robot_bp.route('/task/list', methods=['GET'])
@@ -620,12 +579,12 @@ def list_patrol_tasks():
         try:
             robot_id = int(robot_id_arg)
         except (TypeError, ValueError):
-            return _json_error('robot_id 参数错误', 400)
+            return json_error('robot_id 参数错误', 400)
         robot = _get_robot_or_none(robot_id)
         if not robot:
-            return _json_error('机器人不存在', 404)
+            return json_error('机器人不存在', 404)
         if not _can_access_robot(current_user, robot):
-            return _json_error('无权限访问该机器人', 403)
+            return json_error('无权限访问该机器人', 403)
         tasks = RobotPatrolTask.query.filter_by(robot_id=robot_id).order_by(
             RobotPatrolTask.created_at.desc()).all()
     elif _is_admin_user(current_user):
@@ -636,7 +595,7 @@ def list_patrol_tasks():
                  .filter(RobotPatrolTask.robot_id.in_(owner_ids))
                  .order_by(RobotPatrolTask.created_at.desc()).all() if owner_ids else [])
 
-    return _json_ok({'tasks': [_serialize_patrol_task(t) for t in tasks]})
+    return json_ok({'tasks': [_serialize_patrol_task(t) for t in tasks]})
 
 
 @robot_bp.route('/task/<int:task_id>', methods=['GET'])
@@ -646,10 +605,10 @@ def get_patrol_task(task_id):
         return auth_error
     task = _get_patrol_task_or_none(task_id)
     if not task:
-        return _json_error('巡检任务不存在', 404)
+        return json_error('巡检任务不存在', 404)
     if not _can_access_patrol_task(current_user, task):
-        return _json_error('无权限访问该任务', 403)
-    return _json_ok({'task': _serialize_patrol_task(task)})
+        return json_error('无权限访问该任务', 403)
+    return json_ok({'task': _serialize_patrol_task(task)})
 
 
 @robot_bp.route('/task/update/<int:task_id>', methods=['POST'])
@@ -660,18 +619,18 @@ def update_patrol_task(task_id):
 
     task = _get_patrol_task_or_none(task_id)
     if not task:
-        return _json_error('巡检任务不存在', 404)
+        return json_error('巡检任务不存在', 404)
     if not _can_access_patrol_task(current_user, task):
-        return _json_error('无权限访问该任务', 403)
+        return json_error('无权限访问该任务', 403)
 
-    payload, payload_error = _json_from_request()
+    payload, payload_error = json_from_request()
     if payload_error is not None:
         return payload_error
 
     try:
         updates = parse_patrol_task_update_payload(payload)
     except ValueError as error:
-        return _json_error(str(error), 400)
+        return json_error(str(error), 400)
 
     if 'name' in updates:
         task.name = updates['name']
@@ -703,7 +662,7 @@ def update_patrol_task(task_id):
     commit_error = _commit_or_error('更新巡检任务')
     if commit_error:
         return commit_error
-    return _json_ok({'task': _serialize_patrol_task(task)})
+    return json_ok({'task': _serialize_patrol_task(task)})
 
 
 @robot_bp.route('/task/delete/<int:task_id>', methods=['POST'])
@@ -713,11 +672,11 @@ def delete_patrol_task(task_id):
         return auth_error
     task = _get_patrol_task_or_none(task_id)
     if not task:
-        return _json_error('巡检任务不存在', 404)
+        return json_error('巡检任务不存在', 404)
     if not _can_access_patrol_task(current_user, task):
-        return _json_error('无权限访问该任务', 403)
+        return json_error('无权限访问该任务', 403)
     db.session.delete(task)
     commit_error = _commit_or_error('删除巡检任务')
     if commit_error:
         return commit_error
-    return _json_ok()
+    return json_ok()

@@ -7,8 +7,8 @@ from datetime import datetime
 from flask import current_app, request
 
 from api.geo_utils import reverse_geocode
-from api.response_helpers import json_error as _json_error_impl, json_success as _json_success_impl
-from api.parse_helpers import parse_bool, parse_int, parse_optional_float
+from api.response_helpers import json_error as _json_error_impl
+from api.parse_helpers import parse_optional_float
 from database.db import db
 from database.models import DetectItem, DetectTask
 from inference import yolo_detector as yolo_detector_module
@@ -36,6 +36,7 @@ _DEPENDENCY_INSTALL_HINTS = {
     'ultralytics': 'pip install ultralytics',
     'opencv-python': 'pip install opencv-python',
 }
+
 
 def get_detection_dependency_report():
     missing = []
@@ -84,7 +85,6 @@ def log_detection_dependency_report(logger_obj=None):
 
 
 def get_detection_runtime_error(require_video=False):
-    # Preserve existing tests that mock detector internals without full dependencies.
     if current_app.config.get('TESTING', False):
         return None
 
@@ -117,7 +117,8 @@ def load_detector():
             if _detector is None:
                 model_path = current_app.config.get('YOLO_MODEL_PATH', 'best.pt')
                 conf_thres = current_app.config.get('YOLO_CONF_THRESHOLD', 0.25)
-                left_half_only = parse_bool(current_app.config.get('DETECT_LEFT_HALF_ONLY', False), False)
+                raw_left = current_app.config.get('DETECT_LEFT_HALF_ONLY', False)
+                left_half_only = bool(raw_left) if isinstance(raw_left, bool) else str(raw_left).lower() in ('1', 'true', 'yes')
                 camera_timeout_ms = current_app.config.get('CAMERA_TIMEOUT_MS', 3000)
                 try:
                     _detector = YOLODetector(
@@ -168,10 +169,7 @@ def save_detect_items(task, detections, snapshot_rel_path=None, frame_index=None
             task_id=task.id,
             label=detection['label'],
             confidence=float(detection['confidence']),
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
+            x1=x1, y1=y1, x2=x2, y2=y2,
             area=max(0, int((x2 - x1) * (y2 - y1))),
             handle_state='NEW',
             frame_index=frame_index,
@@ -182,7 +180,7 @@ def save_detect_items(task, detections, snapshot_rel_path=None, frame_index=None
 
         result_items.append({
             'class_name': detection['label'],
-            'confidence': f"{detection['confidence'] * 100:.2f}%",
+            'confidence': f'{detection["confidence"] * 100:.2f}%',
             'bbox': [x1, y1, x2, y2],
             'frame_index': frame_index,
             'snapshot_path': snapshot_rel_path,
@@ -202,10 +200,6 @@ def json_error(message, status_code=500):
     return _json_error_impl(str(message), status_code, message_key='message')
 
 
-def json_success(payload):
-    return _json_success_impl(payload)
-
-
 def parse_geo_from_form(form_data):
     latitude = parse_optional_float(form_data.get('latitude'))
     longitude = parse_optional_float(form_data.get('longitude'))
@@ -220,9 +214,9 @@ def resolve_location(latitude, longitude):
 
 def save_uploaded_file(uploaded_file):
     file_extension = os.path.splitext(uploaded_file.filename)[1].lower()
-    file_name = f"{uuid.uuid4().hex}{file_extension}"
+    file_name = f'{uuid.uuid4().hex}{file_extension}'
     source_abs_path = os.path.join(current_app.config['UPLOAD_DIR'], file_name)
-    source_rel_path = f"static/uploads/{file_name}"
+    source_rel_path = f'static/uploads/{file_name}'
     uploaded_file.save(source_abs_path)
     return file_name, source_abs_path, source_rel_path
 
@@ -243,7 +237,7 @@ def complete_task(task, status='DONE'):
 def _normalize_bbox(raw_bbox):
     if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
         try:
-            return [int(float(raw_bbox[0])), int(float(raw_bbox[1])), int(float(raw_bbox[2])), int(float(raw_bbox[3]))]
+            return [int(float(v)) for v in raw_bbox[:4]]
         except (TypeError, ValueError):
             return None
     return None
@@ -257,28 +251,19 @@ def _normalize_ingest_detection(raw_item):
     if not label:
         return None
 
-    confidence = raw_item.get('confidence', raw_item.get('score', 0.0))
     try:
-        confidence = float(confidence)
+        confidence = float(raw_item.get('confidence', raw_item.get('score', 0.0)))
     except (TypeError, ValueError):
         confidence = 0.0
     confidence = max(0.0, min(confidence, 1.0))
 
     bbox = _normalize_bbox(raw_item.get('bbox'))
     if bbox is None:
-        x1 = raw_item.get('x1')
-        y1 = raw_item.get('y1')
-        x2 = raw_item.get('x2')
-        y2 = raw_item.get('y2')
-        bbox = _normalize_bbox([x1, y1, x2, y2])
+        bbox = _normalize_bbox([
+            raw_item.get('x1'), raw_item.get('y1'),
+            raw_item.get('x2'), raw_item.get('y2'),
+        ])
     if bbox is None:
         return None
 
-    return {
-        'label': label,
-        'confidence': confidence,
-        'bbox': bbox,
-    }
-# Re-export for backward-compatibility (other modules import lookup_address from here)
-def lookup_address(lat, lng):
-    return reverse_geocode(lat, lng)
+    return {'label': label, 'confidence': confidence, 'bbox': bbox}

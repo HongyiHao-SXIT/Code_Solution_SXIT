@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import * as echarts from 'echarts'
 import L from 'leaflet'
 import { getJson } from '../lib/api'
@@ -7,18 +7,24 @@ import { escapeHtml } from '../lib/escape'
 import { focusMapToDenseRegion } from '../lib/mapFocus'
 import { pushFlash } from '../stores/session'
 
+// 轮询间隔从 3s 提升到 10s，减轻服务器压力
+const POLL_INTERVAL_MS = 10_000
+
 const robotList = ref([])
-let chart = null
-let map = null
+const pieChart = shallowRef(null)
+const mapInstance = shallowRef(null)
+
 let refreshTimer = null
 let hasAutoFocused = false
 let mapInteracted = false
 const markers = {}
 const taskMarkers = {}
 
+// ---- 地图标记 ----
+
 function buildRobotPopup(robot) {
-  const batteryText = robot.battery != null ? `${escapeHtml(robot.battery)}%` : ''
-  return `<b>${escapeHtml(robot.name || '-')}</b><br>${escapeHtml(robot.device_id || '-')}<br>${escapeHtml(robot.status || '-')} ${batteryText}`
+  const battery = robot.battery != null ? `${escapeHtml(robot.battery)}%` : ''
+  return `<b>${escapeHtml(robot.name || '-')}</b><br>${escapeHtml(robot.device_id || '-')}<br>${escapeHtml(robot.status || '-')} ${battery}`
 }
 
 function renderTaskPopup(location) {
@@ -36,11 +42,12 @@ function renderTaskPopup(location) {
 }
 
 function syncRobotMarkers(robots) {
+  const map = mapInstance.value
+  if (!map) return
+
   const activeIds = new Set()
   robots.forEach((robot) => {
-    if (robot.lat == null || robot.lng == null || !map) {
-      return
-    }
+    if (robot.lat == null || robot.lng == null) return
     const id = String(robot.device_id || robot.id)
     activeIds.add(id)
     if (markers[id]) {
@@ -59,28 +66,27 @@ function syncRobotMarkers(robots) {
   })
 
   Object.keys(markers).forEach((id) => {
-    if (activeIds.has(id)) {
-      return
-    }
+    if (activeIds.has(id)) return
     map.removeLayer(markers[id])
     delete markers[id]
   })
 }
 
 function syncTaskMarkers(locations) {
+  const map = mapInstance.value
+  if (!map) return
+
   const activeIds = new Set()
-  locations.forEach((location) => {
-    if (!map || location.lat == null || location.lng == null || location.id == null) {
-      return
-    }
-    const id = String(location.id)
+  locations.forEach((loc) => {
+    if (loc.lat == null || loc.lng == null || loc.id == null) return
+    const id = String(loc.id)
     activeIds.add(id)
     if (taskMarkers[id]) {
-      taskMarkers[id].setLatLng([location.lat, location.lng])
-      taskMarkers[id].setPopupContent(renderTaskPopup(location))
+      taskMarkers[id].setLatLng([loc.lat, loc.lng])
+      taskMarkers[id].setPopupContent(renderTaskPopup(loc))
       return
     }
-    taskMarkers[id] = L.marker([location.lat, location.lng], {
+    taskMarkers[id] = L.marker([loc.lat, loc.lng], {
       icon: L.divIcon({
         className: 'map-dot-icon',
         html: '<span class="map-dot"></span>',
@@ -88,26 +94,24 @@ function syncTaskMarkers(locations) {
         iconAnchor: [7, 7],
       }),
     }).addTo(map)
-    taskMarkers[id].bindPopup(renderTaskPopup(location), { closeButton: false, offset: L.point(0, -15) })
-    taskMarkers[id].on('mouseover', function onMouseOver() {
-      this.openPopup()
-    })
-    taskMarkers[id].on('mouseout', function onMouseOut() {
-      this.closePopup()
-    })
+    taskMarkers[id].bindPopup(renderTaskPopup(loc), { closeButton: false, offset: L.point(0, -15) })
+    taskMarkers[id].on('mouseover', function () { this.openPopup() })
+    taskMarkers[id].on('mouseout', function () { this.closePopup() })
   })
 
   Object.keys(taskMarkers).forEach((id) => {
-    if (activeIds.has(id)) {
-      return
-    }
+    if (activeIds.has(id)) return
     map.removeLayer(taskMarkers[id])
     delete taskMarkers[id]
   })
 }
 
+// ---- 图表 ----
+
 function renderPieChart(data) {
-  chart?.setOption({
+  const chart = pieChart.value
+  if (!chart) return
+  chart.setOption({
     tooltip: { trigger: 'item' },
     series: [{
       type: 'pie',
@@ -119,6 +123,8 @@ function renderPieChart(data) {
   })
 }
 
+// ---- 数据加载 ----
+
 async function loadDashboard() {
   try {
     const payload = await getJson('/api/stats/summary')
@@ -128,45 +134,49 @@ async function loadDashboard() {
     syncTaskMarkers(payload.locations || [])
 
     if (!mapInteracted && !hasAutoFocused) {
-      const focusPoints = [
+      const points = [
         ...(payload.locations || []).map((item) => ({ lat: item.lat, lng: item.lng })),
         ...(payload.robot_list || []).map((item) => ({ lat: item.lat, lng: item.lng })),
       ]
-      hasAutoFocused = focusMapToDenseRegion(map, focusPoints, { gridSize: 0.32, maxZoom: 15, singlePointZoom: 14 })
+      hasAutoFocused = focusMapToDenseRegion(
+        mapInstance.value, points,
+        { gridSize: 0.32, maxZoom: 15, singlePointZoom: 14 },
+      )
     }
   } catch (error) {
     pushFlash(error.message || '首页数据加载失败', 'error')
   }
 }
 
+// ---- 生命周期 ----
+
 onMounted(() => {
-  chart = echarts.init(document.getElementById('trashTypeChart'))
-  map = L.map('map', { zoomControl: false }).setView([30, 110], 5)
+  pieChart.value = echarts.init(document.getElementById('trashTypeChart'))
+
+  const map = L.map('map', { zoomControl: false }).setView([30, 110], 5)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map)
   L.control.zoom({ position: 'topright' }).addTo(map)
-  map.on('dragstart zoomstart', () => {
-    mapInteracted = true
-  })
+  map.on('dragstart zoomstart', () => { mapInteracted = true })
+  mapInstance.value = map
+
   loadDashboard()
-  refreshTimer = window.setInterval(loadDashboard, 3000)
-  window.setTimeout(() => map?.invalidateSize(), 500)
+  refreshTimer = window.setInterval(loadDashboard, POLL_INTERVAL_MS)
+  window.setTimeout(() => map.invalidateSize(), 500)
   window.addEventListener('resize', onResize)
 })
 
 function onResize() {
-  chart?.resize()
-  map?.invalidateSize()
+  pieChart.value?.resize()
+  mapInstance.value?.invalidateSize()
 }
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    window.clearInterval(refreshTimer)
-  }
+  if (refreshTimer) window.clearInterval(refreshTimer)
   window.removeEventListener('resize', onResize)
-  chart?.dispose()
-  map?.remove()
+  pieChart.value?.dispose()
+  mapInstance.value?.remove()
 })
 </script>
 
@@ -187,8 +197,9 @@ onBeforeUnmount(() => {
           <div class="panel-title">机器人在线状态</div>
           <div class="home-overlay-body home-table-body">
             <div class="home-status-summary">
-              <span class="home-status-pill home-status-pill-online">在线 {{robotList.filter((robot) => robot.status ===
-                'ONLINE').length }}</span>
+              <span class="home-status-pill home-status-pill-online">
+                在线 {{ robotList.filter((r) => r.status === 'ONLINE').length }}
+              </span>
               <span class="home-status-pill">总数 {{ robotList.length }}</span>
             </div>
             <div class="home-status-table-wrap">

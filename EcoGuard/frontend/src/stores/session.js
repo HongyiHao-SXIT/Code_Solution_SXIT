@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { getJson, postJson } from '../lib/api'
+import { getJson } from '../lib/api'
 
 const DEFAULT_INITIAL_STATE = {
   authUser: null,
@@ -57,17 +57,17 @@ export function clearSessionUser() {
   return applySessionUser(null)
 }
 
+/**
+ * 派发自定义 flash 事件，由 App 层或 toast 组件监听并展示。
+ * 不再向 /api/web/client-log 发送 HTTP 请求。
+ */
 export function pushFlash(message, category = 'success') {
   const text = String(message || '').trim()
-  if (!text) {
-    return
-  }
+  if (!text) return
 
-  // Keep logging in backend only; no front-end popup queue.
-  postJson('/api/web/client-log', {
-    message: text,
-    category,
-    path: window.location.pathname,
-    source: 'flash',
-  }).catch(() => { })
+  window.dispatchEvent(
+    new CustomEvent('app:flash', {
+      detail: { message: text, category },
+    }),
+  )
 }

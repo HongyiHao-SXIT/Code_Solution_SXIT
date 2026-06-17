@@ -2,14 +2,14 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { postJson } from './lib/api'
-import { clearSessionUser, pushFlash, sessionState } from './stores/session'
+import { clearSessionUser, sessionState } from './stores/session'
 
 const route = useRoute()
 const router = useRouter()
 const authUser = computed(() => sessionState.user)
 const isAuthPage = computed(() => Boolean(route.meta?.guestOnly))
 
-const navItems = [
+const NAV_ITEMS = [
   { to: '/', label: '概览', icon: 'dashboard' },
   { to: '/robot', label: '机器人', icon: 'robot' },
   { to: '/result', label: '检测结果', icon: 'task' },
@@ -20,18 +20,18 @@ const navItems = [
 
 function isActive(path) {
   if (path === '/') return route.path === '/'
-  return route.path.startsWith(path)
+  // 精确前缀匹配：/result 不会误匹配 /result-detail
+  return route.path === path || route.path.startsWith(path + '/')
 }
 
 async function logout() {
   try {
     await postJson('/api/web/logout', {})
-    clearSessionUser()
-    pushFlash('已退出登录', 'success')
-    await router.replace('/login')
-  } catch (error) {
-    pushFlash(error.message || '退出失败', 'error')
+  } catch {
+    // 静默处理：后端失败不影响前端登出
   }
+  clearSessionUser()
+  await router.replace('/login')
 }
 </script>
 
@@ -60,7 +60,7 @@ async function logout() {
 
       <nav class="sidebar-nav">
         <RouterLink
-          v-for="item in navItems"
+          v-for="item in NAV_ITEMS"
           :key="item.to"
           :to="item.to"
           class="nav-item"
@@ -95,7 +95,7 @@ async function logout() {
             <div class="user-avatar">{{ authUser.username?.charAt(0)?.toUpperCase() || 'U' }}</div>
             <div class="user-info">
               <div class="user-name">{{ authUser.username }}</div>
-              <div class="user-role">管理员</div>
+              <div class="user-role">{{ authUser.role === 'admin' ? '管理员' : '用户' }}</div>
             </div>
           </div>
           <button class="sidebar-logout" @click="logout" title="退出登录">

@@ -168,22 +168,4 @@ class YOLODetector:
 
         return detections
 
-    def collect_detections(self, result):
-        return self._extract_raw_detections(result)
-
-    def detect_in_frame(self, frame, save_result=False, result_path=None, conf_thres=0.25):
-        return self.analyze_realtime_camera_stream(
-            frame=frame,
-            save_result=save_result,
-            result_path=result_path,
-            conf_thres=conf_thres
-        )
-
-    def detect_in_image(self, img_path, save_result=False, result_path=None, conf_thres=0.25):
-        return self.analyze_uploaded_waste_image(
-            img_path=img_path,
-            save_result=save_result,
-            result_path=result_path,
-            conf_thres=conf_thres
-        )
 
