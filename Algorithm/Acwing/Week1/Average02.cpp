@@ -2,10 +2,11 @@
 #include <iostream>
 
 int main() {
-    double a, b, c;
-    std::cin >> a >> b >> c;
-    double media = (a * 2 + b * 3 + c * 5) / 10.0;
-    printf("MEDIA = %1.1f", media);
+    double firstScore, secondScore, thirdScore;
+    std::cin >> firstScore >> secondScore >> thirdScore;
+
+    double average = (firstScore * 2 + secondScore * 3 + thirdScore * 5) / 10.0;
+    printf("MEDIA = %1.1f", average);
 
     return 0;
 }

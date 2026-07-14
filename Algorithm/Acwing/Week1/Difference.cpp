@@ -1,10 +1,11 @@
 #include <iostream>
 
 int main() {
-    int a, b, c, d;
-    std::cin >> a >> b >> c >> d;
-    int diff = a * b - c * d;
-    std::cout << "DIFERENCA = " << diff << std::endl;
+    int valueA, valueB, valueC, valueD;
+    std::cin >> valueA >> valueB >> valueC >> valueD;
+
+    int difference = valueA * valueB - valueC * valueD;
+    std::cout << "DIFERENCA = " << difference << std::endl;
 
     return 0;
 }
