@@ -6,16 +6,16 @@
 class Grade {
 public:
   Grade();
-  Grade(const std::string &account, const std::string &courseCode,
-        const std::string &score);
+  Grade(const std::string &accountId, const std::string &courseCodeValue,
+        const std::string &scoreValue);
 
   std::string getAccount() const;
   std::string getCourseCode() const;
   std::string getScore() const;
 
-  void setAccount(const std::string &account);
-  void setCourseCode(const std::string &courseCode);
-  void setScore(const std::string &score);
+  void setAccount(const std::string &accountId);
+  void setCourseCode(const std::string &courseCodeValue);
+  void setScore(const std::string &scoreValue);
 
 private:
   std::string account;

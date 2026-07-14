@@ -6,15 +6,16 @@ bool RunGradeTests();
 
 int main() {
   try {
-    const bool coursePassed = RunCourseTests();
-    const bool gradePassed = RunGradeTests();
+    const bool courseTestsPassed = RunCourseTests();
+    const bool gradeTestsPassed = RunGradeTests();
 
-    if (!coursePassed || !gradePassed) {
+    if (!courseTestsPassed || !gradeTestsPassed) {
       std::cerr << "One or more tests failed." << std::endl;
       return 1;
     }
-  } catch (const std::exception& ex) {
-    std::cerr << "Unhandled test exception: " << ex.what() << std::endl;
+  } catch (const std::exception &exception) {
+    std::cerr << "Unhandled test exception: " << exception.what()
+              << std::endl;
     return 1;
   }
 

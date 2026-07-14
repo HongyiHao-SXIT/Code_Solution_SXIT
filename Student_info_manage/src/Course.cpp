@@ -5,10 +5,14 @@
 
 Course::Course() : credits(0), maxStudents(0) {}
 
-Course::Course(const std::string &name, const std::string &code,
-               const std::string &instr, int cred, int maxStud)
-    : courseName(name), courseCode(code), instructor(instr),
-      credits(cred < 0 ? 0 : cred), maxStudents(maxStud < 0 ? 0 : maxStud) {}
+Course::Course(const std::string &courseNameValue,
+               const std::string &courseCodeValue,
+               const std::string &instructorName, int creditCount,
+               int maxStudentCount)
+    : courseName(courseNameValue), courseCode(courseCodeValue),
+      instructor(instructorName),
+      credits(creditCount < 0 ? 0 : creditCount),
+      maxStudents(maxStudentCount < 0 ? 0 : maxStudentCount) {}
 
 std::string Course::getCourseName() const { return courseName; }
 std::string Course::getCourseCode() const { return courseCode; }
@@ -17,19 +21,30 @@ int Course::getCredits() const { return credits; }
 int Course::getMaxStudents() const { return maxStudents; }
 int Course::getCurrentStudents() const { return enrolledStudents.size(); }
 
-void Course::setCourseName(const std::string &name) { courseName = name; }
-void Course::setCourseCode(const std::string &code) { courseCode = code; }
-void Course::setInstructor(const std::string &instr) { instructor = instr; }
-void Course::setCredits(int cred) {
-  if (cred < 0) {
+void Course::setCourseName(const std::string &courseNameValue) {
+  courseName = courseNameValue;
+}
+
+void Course::setCourseCode(const std::string &courseCodeValue) {
+  courseCode = courseCodeValue;
+}
+
+void Course::setInstructor(const std::string &instructorName) {
+  instructor = instructorName;
+}
+
+void Course::setCredits(int creditCount) {
+  if (creditCount < 0) {
     std::cerr << "Error: Credits cannot be negative." << std::endl;
     return;
   }
-  credits = cred;
+
+  credits = creditCount;
 }
 
-void Course::setEnrolledStudents(const std::vector<std::string> &students) {
-  enrolledStudents = students;
+void Course::setEnrolledStudents(
+    const std::vector<std::string> &studentAccounts) {
+  enrolledStudents = studentAccounts;
   if (static_cast<int>(enrolledStudents.size()) > maxStudents) {
     enrolledStudents.resize(maxStudents);
   }

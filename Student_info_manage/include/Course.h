@@ -7,8 +7,9 @@
 class Course {
 public:
   Course();
-  Course(const std::string &name, const std::string &code,
-         const std::string &instr, int cred, int maxStud);
+  Course(const std::string &courseName, const std::string &courseCode,
+         const std::string &instructorName, int creditCount,
+         int maxStudentCount);
 
   std::string getCourseName() const;
   std::string getCourseCode() const;
@@ -17,11 +18,11 @@ public:
   int getMaxStudents() const;
   int getCurrentStudents() const;
 
-  void setCourseName(const std::string &name);
-  void setCourseCode(const std::string &code);
-  void setInstructor(const std::string &instr);
-  void setCredits(int cred);
-  void setEnrolledStudents(const std::vector<std::string> &students);
+  void setCourseName(const std::string &courseNameValue);
+  void setCourseCode(const std::string &courseCodeValue);
+  void setInstructor(const std::string &instructorName);
+  void setCredits(int creditCount);
+  void setEnrolledStudents(const std::vector<std::string> &studentAccounts);
 
   bool enrollStudent(const std::string &studentName);
   bool dropStudent(const std::string &studentName);

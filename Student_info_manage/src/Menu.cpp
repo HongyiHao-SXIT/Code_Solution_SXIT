@@ -104,7 +104,7 @@ bool saveGrades(const std::vector<Grade> &grades) {
   return true;
 }
 
-bool accountExists(const std::string &account) {
+bool accountExists(const std::string &accountId) {
   std::ifstream readFile(kUserDbPath);
   if (!readFile.is_open()) {
     return false;
@@ -117,13 +117,13 @@ bool accountExists(const std::string &account) {
     }
 
     std::istringstream iss(line);
-    std::string accountField;
-    if (!std::getline(iss, accountField, '\t')) {
+    std::string storedAccountId;
+    if (!std::getline(iss, storedAccountId, '\t')) {
       std::istringstream legacy(line);
-      legacy >> accountField;
+      legacy >> storedAccountId;
     }
 
-    if (accountField == account) {
+    if (storedAccountId == accountId) {
       return true;
     }
   }
@@ -162,10 +162,10 @@ void showAllGradeRecords() {
   }
 }
 
-bool upsertStudentGrade(const std::string &account,
+bool upsertStudentGrade(const std::string &studentAccountId,
                         const std::string &courseCode,
                         const std::string &scoreText) {
-  if (!accountExists(account)) {
+  if (!accountExists(studentAccountId)) {
     std::cout << "Account not found." << std::endl;
     return false;
   }
@@ -184,21 +184,21 @@ bool upsertStudentGrade(const std::string &account,
     return false;
   }
 
-  if (!course->isStudentEnrolled(account)) {
+  if (!course->isStudentEnrolled(studentAccountId)) {
     std::cout << "The student is not enrolled in this course." << std::endl;
     return false;
   }
 
   std::vector<Grade> grades = loadGrades();
   for (auto &grade : grades) {
-    if (grade.getAccount() == account &&
+    if (grade.getAccount() == studentAccountId &&
         grade.getCourseCode() == normalizedCode) {
       grade.setScore(scoreText);
       return saveGrades(grades);
     }
   }
 
-  grades.emplace_back(account, normalizedCode, scoreText);
+  grades.emplace_back(studentAccountId, normalizedCode, scoreText);
   return saveGrades(grades);
 }
 
@@ -221,10 +221,11 @@ void adminGradeEntryMenu() {
       showAllGradeRecords();
       break;
     case '2': {
-      const std::string account = readLineInput("Student account: ");
+      const std::string studentAccountId =
+          readLineInput("Student account: ");
       const std::string courseCode = readLineInput("Course code: ");
       const std::string score = readLineInput("Score (0-100): ");
-      if (upsertStudentGrade(account, courseCode, score)) {
+      if (upsertStudentGrade(studentAccountId, courseCode, score)) {
         std::cout << "Grade saved successfully." << std::endl;
       } else {
         std::cout << "Failed to save grade." << std::endl;
@@ -383,11 +384,11 @@ const Course *findCourseByCode(const std::vector<Course> &courses,
 }
 
 const Grade *findGradeByCourseCode(const std::vector<Grade> &grades,
-                                   const std::string &account,
+                                   const std::string &accountId,
                                    const std::string &courseCode) {
   const std::string normalizedCode = normalizeCode(courseCode);
   for (const auto &grade : grades) {
-    if (grade.getAccount() == account &&
+    if (grade.getAccount() == accountId &&
         grade.getCourseCode() == normalizedCode) {
       return &grade;
     }
@@ -396,11 +397,11 @@ const Grade *findGradeByCourseCode(const std::vector<Grade> &grades,
 }
 
 void printCourseList(const std::vector<Course> &courses,
-                     const std::string &currentAccount,
+                     const std::string &currentAccountId,
                      bool onlyEnrolledCourses) {
   bool hasOutput = false;
   for (const auto &course : courses) {
-    const bool isEnrolled = course.isStudentEnrolled(currentAccount);
+    const bool isEnrolled = course.isStudentEnrolled(currentAccountId);
     if (onlyEnrolledCourses && !isEnrolled) {
       continue;
     }
@@ -422,27 +423,27 @@ void printCourseList(const std::vector<Course> &courses,
 }
 
 void showMyCourses() {
-  const std::string currentAccount = getCurrentAccount();
-  if (currentAccount.empty()) {
+  const std::string currentAccountId = getCurrentAccount();
+  if (currentAccountId.empty()) {
     std::cout << "Please login first." << std::endl;
     return;
   }
 
   const std::vector<Course> courses = loadCourses();
   std::cout << "\n-- My Courses --" << std::endl;
-  printCourseList(courses, currentAccount, true);
+  printCourseList(courses, currentAccountId, true);
 }
 
 void showAvailableCourses() {
-  const std::string currentAccount = getCurrentAccount();
+  const std::string currentAccountId = getCurrentAccount();
   const std::vector<Course> courses = loadCourses();
   std::cout << "\n-- Available Courses --" << std::endl;
-  printCourseList(courses, currentAccount, false);
+  printCourseList(courses, currentAccountId, false);
 }
 
 void enrollCurrentStudent() {
-  const std::string currentAccount = getCurrentAccount();
-  if (currentAccount.empty()) {
+  const std::string currentAccountId = getCurrentAccount();
+  if (currentAccountId.empty()) {
     std::cout << "Please login first." << std::endl;
     return;
   }
@@ -450,50 +451,50 @@ void enrollCurrentStudent() {
   std::vector<Course> courses = loadCourses();
   showAvailableCourses();
 
-  std::string courseCode;
+  std::string selectedCourseCode;
   std::cout << "Enter course code to enroll: ";
-  std::cin >> courseCode;
+  std::cin >> selectedCourseCode;
 
-  Course *course = findCourseByCode(courses, courseCode);
+  Course *course = findCourseByCode(courses, selectedCourseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
   }
 
-  if (course->enrollStudent(currentAccount) && saveCourses(courses)) {
+  if (course->enrollStudent(currentAccountId) && saveCourses(courses)) {
     std::cout << "Enrollment successful." << std::endl;
   }
 }
 
 void dropCurrentStudent() {
-  const std::string currentAccount = getCurrentAccount();
-  if (currentAccount.empty()) {
+  const std::string currentAccountId = getCurrentAccount();
+  if (currentAccountId.empty()) {
     std::cout << "Please login first." << std::endl;
     return;
   }
 
   std::vector<Course> courses = loadCourses();
   std::cout << "\n-- Drop Course --" << std::endl;
-  printCourseList(courses, currentAccount, true);
+  printCourseList(courses, currentAccountId, true);
 
-  std::string courseCode;
+  std::string selectedCourseCode;
   std::cout << "Enter course code to drop: ";
-  std::cin >> courseCode;
+  std::cin >> selectedCourseCode;
 
-  Course *course = findCourseByCode(courses, courseCode);
+  Course *course = findCourseByCode(courses, selectedCourseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
   }
 
-  if (course->dropStudent(currentAccount) && saveCourses(courses)) {
+  if (course->dropStudent(currentAccountId) && saveCourses(courses)) {
     std::cout << "Course dropped successfully." << std::endl;
   }
 }
 
 void showAllGrades() {
-  const std::string currentAccount = getCurrentAccount();
-  if (currentAccount.empty()) {
+  const std::string currentAccountId = getCurrentAccount();
+  if (currentAccountId.empty()) {
     std::cout << "Please login first." << std::endl;
     return;
   }
@@ -504,13 +505,14 @@ void showAllGrades() {
   bool hasEnrolledCourses = false;
   std::cout << "\n-- Grade Overview --" << std::endl;
   for (const auto &course : courses) {
-    if (!course.isStudentEnrolled(currentAccount)) {
+    if (!course.isStudentEnrolled(currentAccountId)) {
       continue;
     }
 
     hasEnrolledCourses = true;
     const Grade *grade =
-        findGradeByCourseCode(grades, currentAccount, course.getCourseCode());
+        findGradeByCourseCode(grades, currentAccountId,
+                              course.getCourseCode());
     std::cout << '[' << course.getCourseCode() << "] " << course.getCourseName()
               << " | Grade: "
               << (grade == nullptr ? "Not graded yet" : grade->getScore())
@@ -523,8 +525,8 @@ void showAllGrades() {
 }
 
 void showSpecificCourseGrade() {
-  const std::string currentAccount = getCurrentAccount();
-  if (currentAccount.empty()) {
+  const std::string currentAccountId = getCurrentAccount();
+  if (currentAccountId.empty()) {
     std::cout << "Please login first." << std::endl;
     return;
   }
@@ -532,24 +534,24 @@ void showSpecificCourseGrade() {
   const std::vector<Course> courses = loadCourses();
   const std::vector<Grade> grades = loadGrades();
 
-  std::string courseCode;
+  std::string selectedCourseCode;
   std::cout << "Enter course code: ";
-  std::cin >> courseCode;
-  courseCode = normalizeCode(courseCode);
+  std::cin >> selectedCourseCode;
+  selectedCourseCode = normalizeCode(selectedCourseCode);
 
-  const Course *course = findCourseByCode(courses, courseCode);
+  const Course *course = findCourseByCode(courses, selectedCourseCode);
   if (course == nullptr) {
     std::cout << "Course not found." << std::endl;
     return;
   }
 
-  if (!course->isStudentEnrolled(currentAccount)) {
+  if (!course->isStudentEnrolled(currentAccountId)) {
     std::cout << "You are not enrolled in this course." << std::endl;
     return;
   }
 
   const Grade *grade =
-      findGradeByCourseCode(grades, currentAccount, courseCode);
+      findGradeByCourseCode(grades, currentAccountId, selectedCourseCode);
   std::cout << '[' << course->getCourseCode() << "] " << course->getCourseName()
             << " | Grade: "
             << (grade == nullptr ? "Not graded yet" : grade->getScore())
@@ -557,18 +559,18 @@ void showSpecificCourseGrade() {
 }
 
 void showCurrentUserInfo() {
-  User currentUser;
-  if (!getCurrentUser(currentUser)) {
+  User loggedInUser;
+  if (!getCurrentUser(loggedInUser)) {
     return;
   }
 
   std::cout << "\n-- Personal Information --" << std::endl;
-  currentUser.displayInfo();
+  loggedInUser.displayInfo();
 }
 
 void updateCurrentUserInfo() {
-  User currentUser;
-  if (!getCurrentUser(currentUser)) {
+  User loggedInUser;
+  if (!getCurrentUser(loggedInUser)) {
     return;
   }
 
@@ -580,28 +582,28 @@ void updateCurrentUserInfo() {
   }
 
   const std::string name =
-      readOptionalLineInput("Name [" + currentUser.getName() + "]: ");
+      readOptionalLineInput("Name [" + loggedInUser.getName() + "]: ");
   const std::string email =
-      readOptionalLineInput("Email [" + currentUser.getEmail() + "]: ");
+      readOptionalLineInput("Email [" + loggedInUser.getEmail() + "]: ");
   const std::string phone =
-      readOptionalLineInput("Phone [" + currentUser.getPhone() + "]: ");
+      readOptionalLineInput("Phone [" + loggedInUser.getPhone() + "]: ");
   const std::string major =
-      readOptionalLineInput("Major [" + currentUser.getMajor() + "]: ");
+      readOptionalLineInput("Major [" + loggedInUser.getMajor() + "]: ");
 
   if (!name.empty()) {
-    currentUser.setName(name);
+    loggedInUser.setName(name);
   }
   if (!email.empty()) {
-    currentUser.setEmail(email);
+    loggedInUser.setEmail(email);
   }
   if (!phone.empty()) {
-    currentUser.setPhone(phone);
+    loggedInUser.setPhone(phone);
   }
   if (!major.empty()) {
-    currentUser.setMajor(major);
+    loggedInUser.setMajor(major);
   }
 
-  if (updateCurrentUser(currentUser)) {
+  if (updateCurrentUser(loggedInUser)) {
     std::cout << "Personal information updated successfully." << std::endl;
   } else {
     std::cout << "Failed to update personal information." << std::endl;

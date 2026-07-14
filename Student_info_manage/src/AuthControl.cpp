@@ -12,7 +12,7 @@ namespace {
 
 constexpr const char *kUserDbPath = "users.txt";
 constexpr const char *kHashedPrefix = "H:";
-std::string gCurrentAccount;
+std::string gCurrentAccountId;
 
 struct UserRecord {
   std::string account;
@@ -24,13 +24,14 @@ struct UserRecord {
   bool passwordHashed = false;
 };
 
-std::string trimLeft(const std::string &input) {
-  size_t pos = 0;
-  while (pos < input.size() &&
-         std::isspace(static_cast<unsigned char>(input[pos]))) {
-    ++pos;
+std::string trimLeadingWhitespace(const std::string &input) {
+  size_t firstNonWhitespace = 0;
+  while (firstNonWhitespace < input.size() &&
+         std::isspace(static_cast<unsigned char>(input[firstNonWhitespace]))) {
+    ++firstNonWhitespace;
   }
-  return input.substr(pos);
+
+  return input.substr(firstNonWhitespace);
 }
 
 std::string hashPassword(const std::string &password) {
@@ -107,19 +108,19 @@ bool parseLegacyLine(const std::string &line, UserRecord &record) {
 
   std::string majorRest;
   std::getline(iss, majorRest);
-  record.major = trimLeft(majorRest);
+  record.major = trimLeadingWhitespace(majorRest);
   record.passwordHashed = false;
   return true;
 }
 
-std::vector<UserRecord> loadUsers(bool &fileAvailable) {
+std::vector<UserRecord> loadUsers(bool &isFileAvailable) {
   std::ifstream readFile(kUserDbPath);
   if (!readFile.is_open()) {
-    fileAvailable = false;
+    isFileAvailable = false;
     return {};
   }
 
-  fileAvailable = true;
+  isFileAvailable = true;
   std::vector<UserRecord> users;
   std::string line;
   while (std::getline(readFile, line)) {
@@ -142,9 +143,9 @@ bool saveUsers(const std::vector<UserRecord> &users) {
   }
 
   for (const auto &user : users) {
-    const std::string finalHash =
+    const std::string passwordHash =
         user.passwordHashed ? user.password : hashPassword(user.password);
-    writeFile << user.account << '\t' << kHashedPrefix << finalHash << '\t'
+    writeFile << user.account << '\t' << kHashedPrefix << passwordHash << '\t'
               << user.name << '\t' << user.email << '\t' << user.phone << '\t'
               << user.major << '\n';
   }
@@ -163,79 +164,85 @@ bool isPasswordMatched(const UserRecord &user,
 } // namespace
 
 bool login() {
-  std::string inputAccount, inputPassword;
+  std::string enteredAccountId;
+  std::string enteredPassword;
 
   std::cout << "Enter Account: ";
-  std::cin >> inputAccount;
+  std::cin >> enteredAccountId;
   std::cout << "Enter Password: ";
-  std::cin >> inputPassword;
+  std::cin >> enteredPassword;
 
-  bool fileAvailable = false;
-  std::vector<UserRecord> users = loadUsers(fileAvailable);
-  if (!fileAvailable) {
+  bool isUserFileAvailable = false;
+  std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
+  if (!isUserFileAvailable) {
     std::cerr << "Error: Could not open database file." << std::endl;
     return false;
   }
 
-  bool isAuthenticated = false;
-  bool needRewrite = false;
+  bool isLoginSuccessful = false;
+  bool shouldRewriteUsers = false;
 
-  for (auto &user : users) {
-    if (user.account == inputAccount &&
-        isPasswordMatched(user, inputPassword)) {
-      isAuthenticated = true;
-      if (!user.passwordHashed) {
-        user.password = hashPassword(inputPassword);
-        user.passwordHashed = true;
-        needRewrite = true;
+  for (auto &userRecord : users) {
+    if (userRecord.account == enteredAccountId &&
+        isPasswordMatched(userRecord, enteredPassword)) {
+      isLoginSuccessful = true;
+      if (!userRecord.passwordHashed) {
+        userRecord.password = hashPassword(enteredPassword);
+        userRecord.passwordHashed = true;
+        shouldRewriteUsers = true;
       }
       break;
     }
   }
 
-  if (needRewrite && !saveUsers(users)) {
+  if (shouldRewriteUsers && !saveUsers(users)) {
     std::cerr << "Warning: Login succeeded, but failed to update password "
                  "storage format."
               << std::endl;
   }
 
-  if (isAuthenticated) {
-    gCurrentAccount = inputAccount;
+  if (isLoginSuccessful) {
+    gCurrentAccountId = enteredAccountId;
     std::cout << "Login Successful!" << std::endl;
   } else {
-    gCurrentAccount.clear();
+    gCurrentAccountId.clear();
     std::cout << "Login Failed! Invalid account or password." << std::endl;
   }
 
-  return isAuthenticated;
+  return isLoginSuccessful;
 }
 
-std::string getCurrentAccount() { return gCurrentAccount; }
+std::string getCurrentAccount() { return gCurrentAccountId; }
 
-void logoutUser() { gCurrentAccount.clear(); }
+void logoutUser() { gCurrentAccountId.clear(); }
 
 bool registerUser() {
-  std::string name, email, account, password, phone, major;
+  std::string userName;
+  std::string emailAddress;
+  std::string accountId;
+  std::string plainPassword;
+  std::string phoneNumber;
+  std::string majorName;
 
   std::cout << "--- User Registration ---" << std::endl;
   std::cout << "Enter Name: ";
-  std::getline(std::cin >> std::ws, name);
-  if (name.empty()) {
+  std::getline(std::cin >> std::ws, userName);
+  if (userName.empty()) {
     std::cerr << "Error: Name cannot be empty." << std::endl;
     return false;
   }
 
   std::cout << "Enter Email: ";
-  std::cin >> email;
-  if (!isValidEmail(email)) {
+  std::cin >> emailAddress;
+  if (!isValidEmail(emailAddress)) {
     std::cerr << "Error: Invalid email format." << std::endl;
     return false;
   }
 
   std::cout << "Enter Account (the length of account should longer than 5 "
                "characters and shorter than 15 characters): ";
-  std::cin >> account;
-  if (account.length() < 5 || account.length() > 15) {
+  std::cin >> accountId;
+  if (accountId.length() < 5 || accountId.length() > 15) {
     std::cerr << "Error: Account must be at least 5 characters long and less "
                  "than 15 characters long."
               << std::endl;
@@ -243,14 +250,14 @@ bool registerUser() {
   }
 
   std::cout << "Enter Password: ";
-  std::cin >> password;
-  if (!validatePassword(password)) {
+  std::cin >> plainPassword;
+  if (!validatePassword(plainPassword)) {
     return false;
   }
 
   std::cout << "Enter Phone: ";
-  std::cin >> phone;
-  if (!isValidPhone(phone)) {
+  std::cin >> phoneNumber;
+  if (!isValidPhone(phoneNumber)) {
     std::cerr << "Error: Phone number must be exactly 11 digits and contain "
                  "only numbers."
               << std::endl;
@@ -258,29 +265,29 @@ bool registerUser() {
   }
 
   std::cout << "Enter Major: ";
-  std::getline(std::cin >> std::ws, major);
-  if (major.empty()) {
+  std::getline(std::cin >> std::ws, majorName);
+  if (majorName.empty()) {
     std::cerr << "Error: Major cannot be empty." << std::endl;
     return false;
   }
 
-  bool fileAvailable = false;
-  std::vector<UserRecord> users = loadUsers(fileAvailable);
+  bool isUserFileAvailable = false;
+  std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
 
-  for (const auto &user : users) {
-    if (user.account == account) {
+  for (const auto &userRecord : users) {
+    if (userRecord.account == accountId) {
       std::cerr << "Error: Account already exists." << std::endl;
       return false;
     }
   }
 
   UserRecord newUser;
-  newUser.account = account;
-  newUser.password = hashPassword(password);
-  newUser.name = name;
-  newUser.email = email;
-  newUser.phone = phone;
-  newUser.major = major;
+  newUser.account = accountId;
+  newUser.password = hashPassword(plainPassword);
+  newUser.name = userName;
+  newUser.email = emailAddress;
+  newUser.phone = phoneNumber;
+  newUser.major = majorName;
   newUser.passwordHashed = true;
   users.push_back(newUser);
 
@@ -294,37 +301,37 @@ bool registerUser() {
 }
 
 bool forgetAccount() {
-  std::string inputEmail;
+  std::string emailAddress;
   std::cout << "Please enter your email: ";
-  std::cin >> inputEmail;
+  std::cin >> emailAddress;
 
-  if (!isValidEmail(inputEmail)) {
+  if (!isValidEmail(emailAddress)) {
     std::cerr << "Error: Invalid email format." << std::endl;
     return false;
   }
-  if (inputEmail.empty()) {
+  if (emailAddress.empty()) {
     std::cerr << "Error: Email cannot be empty." << std::endl;
     return false;
   }
 
-  bool fileAvailable = false;
-  std::vector<UserRecord> users = loadUsers(fileAvailable);
-  if (!fileAvailable) {
+  bool isUserFileAvailable = false;
+  std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
+  if (!isUserFileAvailable) {
     std::cerr << "Error: Could not open database file." << std::endl;
     return false;
   }
 
-  bool isFound = false;
+  bool isAccountFound = false;
 
-  for (const auto &user : users) {
-    if (user.email == inputEmail) {
-      isFound = true;
-      std::cout << "Account found: " << user.account << std::endl;
+  for (const auto &userRecord : users) {
+    if (userRecord.email == emailAddress) {
+      isAccountFound = true;
+      std::cout << "Account found: " << userRecord.account << std::endl;
       break;
     }
   }
 
-  if (!isFound) {
+  if (!isAccountFound) {
     std::cerr << "Error: Email not found in database." << std::endl;
     return false;
   }
@@ -333,29 +340,30 @@ bool forgetAccount() {
 }
 
 bool forgetPassword() {
-  std::string inputAccount, inputEmail;
+  std::string accountId;
+  std::string emailAddress;
   std::cout << "Please enter your account: ";
-  std::cin >> inputAccount;
+  std::cin >> accountId;
   std::cout << "Please enter your email: ";
-  std::cin >> inputEmail;
+  std::cin >> emailAddress;
 
-  if (!isValidEmail(inputEmail)) {
+  if (!isValidEmail(emailAddress)) {
     std::cerr << "Error: Invalid email format." << std::endl;
     return false;
   }
 
-  bool fileAvailable = false;
-  std::vector<UserRecord> users = loadUsers(fileAvailable);
-  if (!fileAvailable) {
+  bool isUserFileAvailable = false;
+  std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
+  if (!isUserFileAvailable) {
     std::cerr << "Error: Could not open database file." << std::endl;
     return false;
   }
 
-  bool isFound = false;
+  bool isUserFound = false;
 
-  for (auto &user : users) {
-    if (user.account == inputAccount && user.email == inputEmail) {
-      isFound = true;
+  for (auto &userRecord : users) {
+    if (userRecord.account == accountId && userRecord.email == emailAddress) {
+      isUserFound = true;
 
       std::string newPassword;
       std::cout << "Account verified. Enter a new password: ";
@@ -365,8 +373,8 @@ bool forgetPassword() {
         return false;
       }
 
-      user.password = hashPassword(newPassword);
-      user.passwordHashed = true;
+      userRecord.password = hashPassword(newPassword);
+      userRecord.passwordHashed = true;
 
       if (!saveUsers(users)) {
         std::cerr << "Error: Could not update database file." << std::endl;
@@ -378,7 +386,7 @@ bool forgetPassword() {
     }
   }
 
-  if (!isFound) {
+  if (!isUserFound) {
     std::cerr << "Error: Account and email combination not found." << std::endl;
     return false;
   }
@@ -387,22 +395,23 @@ bool forgetPassword() {
 }
 
 bool getCurrentUser(User &currentUser) {
-  if (gCurrentAccount.empty()) {
+  if (gCurrentAccountId.empty()) {
     std::cerr << "Error: No user is currently logged in." << std::endl;
     return false;
   }
 
-  bool fileAvailable = false;
-  const std::vector<UserRecord> users = loadUsers(fileAvailable);
-  if (!fileAvailable) {
+  bool isUserFileAvailable = false;
+  const std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
+  if (!isUserFileAvailable) {
     std::cerr << "Error: Could not open database file." << std::endl;
     return false;
   }
 
-  for (const auto &user : users) {
-    if (user.account == gCurrentAccount) {
+  for (const auto &userRecord : users) {
+    if (userRecord.account == gCurrentAccountId) {
       currentUser =
-          User(user.name, user.email, user.account, "", user.phone, user.major);
+          User(userRecord.name, userRecord.email, userRecord.account, "",
+               userRecord.phone, userRecord.major);
       return true;
     }
   }
@@ -412,7 +421,7 @@ bool getCurrentUser(User &currentUser) {
 }
 
 bool updateCurrentUser(const User &updatedUser) {
-  if (gCurrentAccount.empty()) {
+  if (gCurrentAccountId.empty()) {
     std::cerr << "Error: No user is currently logged in." << std::endl;
     return false;
   }
@@ -436,19 +445,19 @@ bool updateCurrentUser(const User &updatedUser) {
     return false;
   }
 
-  bool fileAvailable = false;
-  std::vector<UserRecord> users = loadUsers(fileAvailable);
-  if (!fileAvailable) {
+  bool isUserFileAvailable = false;
+  std::vector<UserRecord> users = loadUsers(isUserFileAvailable);
+  if (!isUserFileAvailable) {
     std::cerr << "Error: Could not open database file." << std::endl;
     return false;
   }
 
-  for (auto &user : users) {
-    if (user.account == gCurrentAccount) {
-      user.name = updatedUser.getName();
-      user.email = updatedUser.getEmail();
-      user.phone = updatedUser.getPhone();
-      user.major = updatedUser.getMajor();
+  for (auto &userRecord : users) {
+    if (userRecord.account == gCurrentAccountId) {
+      userRecord.name = updatedUser.getName();
+      userRecord.email = updatedUser.getEmail();
+      userRecord.phone = updatedUser.getPhone();
+      userRecord.major = updatedUser.getMajor();
       return saveUsers(users);
     }
   }
@@ -458,7 +467,7 @@ bool updateCurrentUser(const User &updatedUser) {
 }
 
 bool forget() {
-  char choice;
+  char selectedOption;
 
   std::cout << "--- Forget Services ---" << std::endl;
   std::cout << "Please select an option:" << std::endl;
@@ -466,9 +475,9 @@ bool forget() {
   std::cout << "B. Forgot Password?" << std::endl;
   std::cout << "C. Exit" << std::endl;
 
-  std::cin >> choice;
+  std::cin >> selectedOption;
 
-  switch (std::toupper(static_cast<unsigned char>(choice))) {
+  switch (std::toupper(static_cast<unsigned char>(selectedOption))) {
   case 'A':
     return forgetAccount();
   case 'B':

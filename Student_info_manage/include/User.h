@@ -14,9 +14,9 @@ private:
 
 public:
   User();
-  User(const std::string &name, const std::string &email,
-       const std::string &account, const std::string &password,
-       const std::string &phone, const std::string &major);
+  User(const std::string &userName, const std::string &emailAddress,
+       const std::string &accountId, const std::string &plainPassword,
+       const std::string &phoneNumber, const std::string &majorName);
 
   std::string getName() const;
   std::string getEmail() const;
@@ -25,12 +25,12 @@ public:
   std::string getPhone() const;
   std::string getMajor() const;
 
-  void setName(const std::string &name);
-  void setEmail(const std::string &email);
-  void setAccount(const std::string &account);
-  void setPassword(const std::string &password);
-  void setPhone(const std::string &phone);
-  void setMajor(const std::string &major);
+  void setName(const std::string &userName);
+  void setEmail(const std::string &emailAddress);
+  void setAccount(const std::string &accountId);
+  void setPassword(const std::string &plainPassword);
+  void setPhone(const std::string &phoneNumber);
+  void setMajor(const std::string &majorName);
 
   void displayInfo() const;
 };

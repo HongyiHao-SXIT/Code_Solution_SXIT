@@ -5,7 +5,7 @@
 #include "Menu.h"
 
 int main() {
-  char choice = 'E';
+  char selectedOption = 'E';
   bool isLoggedIn = false;
 
   std::cout << "=== Student Information Management System ===" << std::endl;
@@ -19,9 +19,9 @@ int main() {
     std::cout << "E. Exit" << std::endl;
     std::cout << "> ";
 
-    std::cin >> choice;
+    std::cin >> selectedOption;
 
-    switch (std::toupper(static_cast<unsigned char>(choice))) {
+    switch (std::toupper(static_cast<unsigned char>(selectedOption))) {
     case 'A':
       if (isLoggedIn) {
         std::cout << "You are already logged in." << std::endl;

@@ -2,18 +2,13 @@
 
 #include <iostream>
 
-User::User() {}
+User::User() = default;
 
-User::User(const std::string &name, const std::string &email,
-           const std::string &account, const std::string &password,
-           const std::string &phone, const std::string &major) {
-  this->name = name;
-  this->email = email;
-  this->account = account;
-  this->password = password;
-  this->phone = phone;
-  this->major = major;
-}
+User::User(const std::string &userName, const std::string &emailAddress,
+           const std::string &accountId, const std::string &plainPassword,
+           const std::string &phoneNumber, const std::string &majorName)
+    : name(userName), email(emailAddress), account(accountId),
+      password(plainPassword), phone(phoneNumber), major(majorName) {}
 
 std::string User::getAccount() const { return account; }
 
@@ -27,19 +22,19 @@ std::string User::getPassword() const { return password; }
 
 std::string User::getPhone() const { return phone; }
 
-void User::setAccount(const std::string &account) { this->account = account; }
+void User::setAccount(const std::string &accountId) { account = accountId; }
 
-void User::setEmail(const std::string &email) { this->email = email; }
+void User::setEmail(const std::string &emailAddress) { email = emailAddress; }
 
-void User::setMajor(const std::string &major) { this->major = major; }
+void User::setMajor(const std::string &majorName) { major = majorName; }
 
-void User::setName(const std::string &name) { this->name = name; }
+void User::setName(const std::string &userName) { name = userName; }
 
-void User::setPassword(const std::string &password) {
-  this->password = password;
+void User::setPassword(const std::string &plainPassword) {
+  password = plainPassword;
 }
 
-void User::setPhone(const std::string &phone) { this->phone = phone; }
+void User::setPhone(const std::string &phoneNumber) { phone = phoneNumber; }
 
 void User::displayInfo() const {
   std::cout << "Name: " << name << std::endl;
