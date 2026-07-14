@@ -26,7 +26,6 @@
 - `Operating_System/`：操作系统实验（银行家算法、进程/存储管理等）
 - `Java_Lab/`：Java 基础与章节实验代码
 - `JavaEE_Lab/`：Java Web/EE 相关实验代码
-- `JS_Lab/`：JavaScript 实验代码
 - `Py_Lab/`：Python 基础实验代码
 - `SQL_Lab/`：SQL 语句与数据库实验脚本
 - `Student_info_manage/`：学生信息管理相关项目（CMake 工程）
