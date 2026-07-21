@@ -9,6 +9,8 @@ a {
   color: inherit;
 }
 
+/* ---- Layout ---- */
+
 .scholar-shell {
   width: min(1320px, calc(100vw - 32px));
   margin: 0 auto;
@@ -132,6 +134,8 @@ a {
   color: #fff;
 }
 
+/* ---- Hero ---- */
+
 .hero-panel {
   display: grid;
   grid-template-columns: 1.25fr 1fr;
@@ -156,6 +160,8 @@ a {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+/* ---- Search Card ---- */
 
 .search-card,
 .sidebar-card,
@@ -222,6 +228,47 @@ a {
   font-size: 12px;
   font-weight: 600;
 }
+
+/* ---- Search History ---- */
+
+.search-history {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-history-label {
+  font-size: 12px;
+  color: var(--scholar-muted);
+  margin-right: 4px;
+  align-self: center;
+}
+
+.search-history-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #f0f4fa;
+  color: #3b5e8a;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.search-history-chip:hover {
+  background: #dce9f8;
+}
+
+.clear-history-btn {
+  border: 0;
+  background: transparent;
+  color: #a0b0c8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ---- Content Grid ---- */
 
 .content-grid {
   display: grid;
@@ -294,6 +341,39 @@ a {
   background: linear-gradient(180deg, rgba(247, 250, 255, 0.95), rgba(239, 245, 255, 0.9));
 }
 
+/* ---- Stats Card ---- */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 10px 8px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(26, 115, 232, 0.06), rgba(15, 157, 88, 0.05));
+}
+
+.stat-number {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a73e8;
+  font-family: var(--font-serif);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--scholar-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+/* ---- Highlight list ---- */
+
 .highlight-list {
   margin-top: 14px;
   display: grid;
@@ -347,6 +427,8 @@ a {
   cursor: pointer;
 }
 
+/* ---- Results Panel ---- */
+
 .results-panel {
   padding: 24px;
 }
@@ -366,6 +448,7 @@ a {
 .pager-group {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .pager-group button {
@@ -381,6 +464,13 @@ a {
   transform: none;
 }
 
+.page-indicator {
+  font-size: 13px;
+  color: var(--scholar-muted);
+  font-weight: 600;
+  padding: 0 6px;
+}
+
 .results-list {
   display: grid;
   gap: 14px;
@@ -393,6 +483,45 @@ a {
 .error-message {
   color: #b42318;
 }
+
+/* ---- Skeleton Loading ---- */
+
+.skeleton-card {
+  padding: 20px 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(125, 150, 185, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(251, 253, 255, 0.92));
+  display: grid;
+  gap: 10px;
+}
+
+.skeleton-line {
+  height: 16px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(200, 215, 235, 0.45), rgba(220, 230, 245, 0.7), rgba(200, 215, 235, 0.45));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-line.wide {
+  width: 90%;
+}
+
+.skeleton-line.title {
+  height: 24px;
+  width: 70%;
+}
+
+.skeleton-line.short {
+  width: 35%;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ---- Toast ---- */
 
 .toast {
   position: fixed;
@@ -418,6 +547,37 @@ a {
   transform: translateX(-50%) translateY(8px);
 }
 
+/* ---- Footer ---- */
+
+.scholar-footer {
+  margin-top: 36px;
+  padding: 24px 0;
+  border-top: 1px solid var(--scholar-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--scholar-muted);
+  font-size: 13px;
+}
+
+.footer-links {
+  display: flex;
+  gap: 16px;
+}
+
+.footer-links a {
+  color: #35598e;
+  transition: color 0.15s ease;
+}
+
+.footer-links a:hover {
+  color: #1a73e8;
+}
+
+/* ---- Animations ---- */
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -429,6 +589,8 @@ a {
     transform: translateY(0);
   }
 }
+
+/* ---- Responsive ---- */
 
 @media (max-width: 1100px) {
   .scholar-header,
@@ -469,5 +631,14 @@ a {
 
   .hero-copy h1 {
     font-size: 2.6rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scholar-footer {
+    flex-direction: column;
+    text-align: center;
   }
 }

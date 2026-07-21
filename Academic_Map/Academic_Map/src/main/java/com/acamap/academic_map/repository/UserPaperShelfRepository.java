@@ -16,4 +16,6 @@ public interface UserPaperShelfRepository extends JpaRepository<UserPaperShelf, 
     boolean existsByUserIdAndPaperIdAndShelfType(Integer userId, String paperId, ShelfType shelfType);
 
     void deleteByUserIdAndPaperIdAndShelfType(Integer userId, String paperId, ShelfType shelfType);
+
+    long countByShelfType(ShelfType shelfType);
 }

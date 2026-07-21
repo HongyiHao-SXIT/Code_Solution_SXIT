@@ -29,8 +29,12 @@ public class UserController {
         if (user == null || user.getAccount() == null || user.getPassword() == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "account and password are required"));
         }
-        User created = userService.register(user);
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+        try {
+            User created = userService.register(user);
+            return ResponseEntity.status(HttpStatus.CREATED).body(created);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        }
     }
 
     @PostMapping("/login")

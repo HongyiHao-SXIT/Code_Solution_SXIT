@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import PaperResultItem from '../components/PaperResultItem.vue'
 import LoginView from './login.vue'
@@ -8,6 +8,8 @@ import { parseAdvancedQuery } from '../utils/parseAdvancedQuery'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 const userStorageKey = 'academic_scholar_user'
+const searchHistoryKey = 'academic_scholar_search_history'
+const MAX_HISTORY = 10
 
 const searchForm = reactive({
   keyword: 'knowledge graph author:"Lin Wang" year:2025',
@@ -31,7 +33,15 @@ const showLogin = ref(false)
 const sortBy = ref('relevance')
 const selectedYear = ref('')
 const toastMessage = ref('')
+const searchHistory = ref([])
+const stats = reactive({
+  totalPapers: 0,
+  totalUsers: 0,
+  totalFavorites: 0,
+  totalReading: 0,
+})
 let toastTimer = null
+let debounceTimer = null
 
 const parsedQuery = ref({ keyword: '', author: '', journal: '', year: '' })
 
@@ -64,7 +74,7 @@ const summaryText = computed(() => {
   if (!results.value.length) {
     return 'No matching papers yet. Try a broader query.'
   }
-  return `About ${meta.total} results (${meta.page + 1}/${Math.max(meta.totalPages, 1)} pages)`
+  return `About ${meta.total} results (page ${meta.page + 1} of ${Math.max(meta.totalPages, 1)})`
 })
 
 const queryHints = computed(() => {
@@ -108,6 +118,29 @@ watch(
   },
   { deep: true },
 )
+
+function loadSearchHistory() {
+  try {
+    const raw = localStorage.getItem(searchHistoryKey)
+    searchHistory.value = raw ? JSON.parse(raw) : []
+  } catch {
+    searchHistory.value = []
+  }
+}
+
+function saveSearchHistory(query) {
+  if (!query || !query.trim()) return
+  const q = query.trim()
+  const filtered = searchHistory.value.filter((h) => h !== q)
+  filtered.unshift(q)
+  searchHistory.value = filtered.slice(0, MAX_HISTORY)
+  localStorage.setItem(searchHistoryKey, JSON.stringify(searchHistory.value))
+}
+
+function clearSearchHistory() {
+  searchHistory.value = []
+  localStorage.removeItem(searchHistoryKey)
+}
 
 function buildSearchPayload() {
   const parsed = parseAdvancedQuery(searchForm.keyword)
@@ -169,12 +202,44 @@ async function fetchPapers(page = 0) {
   }
 }
 
+async function fetchStats() {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/papers/stats`)
+    if (response.ok) {
+      const data = await response.json()
+      stats.totalPapers = data.totalPapers || 0
+      stats.totalUsers = data.totalUsers || 0
+      stats.totalFavorites = data.totalFavorites || 0
+      stats.totalReading = data.totalReading || 0
+    }
+  } catch {
+    // stats are non-critical, silently ignore
+  }
+}
+
 function submitSearch() {
+  const keyword = searchForm.keyword.trim()
+  if (keyword) {
+    saveSearchHistory(keyword)
+  }
+  fetchPapers(0)
+}
+
+function applySearchFromHistory(query) {
+  searchForm.keyword = query
+  searchForm.author = ''
+  searchForm.journal = ''
+  searchForm.year = ''
+  selectedYear.value = ''
   fetchPapers(0)
 }
 
 function applyTopic(query) {
   searchForm.keyword = query
+  searchForm.author = ''
+  searchForm.journal = ''
+  searchForm.year = ''
+  selectedYear.value = ''
   fetchPapers(0)
 }
 
@@ -197,6 +262,15 @@ function changePage(nextPage) {
   fetchPapers(nextPage)
 }
 
+function handleDebouncedInput() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
+  debounceTimer = setTimeout(() => {
+    fetchPapers(0)
+  }, 500)
+}
+
 function handleAuthenticated(user) {
   currentUser.value = user
   showLogin.value = false
@@ -204,6 +278,7 @@ function handleAuthenticated(user) {
     showToast('Shelf sync failed, using local data')
   })
   showToast(`Welcome ${user.name || user.account}`)
+  fetchStats()
 }
 
 function logout() {
@@ -212,6 +287,7 @@ function logout() {
     showToast('Switched to local shelf')
   })
   showToast('Signed out')
+  fetchStats()
 }
 
 async function handleFavorite(paper) {
@@ -219,6 +295,7 @@ async function handleFavorite(paper) {
   try {
     await toggleFavorite(paper)
     showToast(wasFavorite ? 'Removed from favorites' : 'Added to favorites')
+    fetchStats()
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Unable to update favorites')
   }
@@ -229,6 +306,7 @@ async function handleReading(paper) {
   try {
     await toggleReading(paper)
     showToast(wasReading ? 'Removed from reading list' : 'Added to reading list')
+    fetchStats()
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Unable to update reading list')
   }
@@ -238,6 +316,7 @@ async function removeFavoriteEntry(id) {
   try {
     await removeFavorite(id)
     showToast('Removed from favorites')
+    fetchStats()
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Unable to remove favorite')
   }
@@ -247,6 +326,7 @@ async function removeReadingEntry(id) {
   try {
     await removeReading(id)
     showToast('Removed from reading list')
+    fetchStats()
   } catch (error) {
     showToast(error instanceof Error ? error.message : 'Unable to remove reading item')
   }
@@ -281,11 +361,20 @@ onMounted(() => {
     }
   }
 
+  loadSearchHistory()
+
   setSession({ apiBaseUrl, userId: currentUser.value?.id || null }).catch(() => {
     showToast('Shelf sync failed, using local data')
   })
 
   fetchPapers(0)
+  fetchStats()
+})
+
+onUnmounted(() => {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
 })
 </script>
 
@@ -337,24 +426,67 @@ onMounted(() => {
 
       <form class="search-card" @submit.prevent="submitSearch">
         <div class="search-row search-row-main">
-          <input v-model="searchForm.keyword" type="text" placeholder="Search papers, topics, DOI, or author:xxx year:2024" />
+          <input
+            v-model="searchForm.keyword"
+            type="text"
+            placeholder="Search papers, topics, DOI, or author:xxx year:2024"
+            @input="handleDebouncedInput"
+          />
           <button type="submit">Search</button>
         </div>
 
         <div class="search-row search-row-secondary">
-          <input v-model="searchForm.author" type="text" placeholder="Author" />
-          <input v-model="searchForm.journal" type="text" placeholder="Journal" />
+          <input v-model="searchForm.author" type="text" placeholder="Author" @input="handleDebouncedInput" />
+          <input v-model="searchForm.journal" type="text" placeholder="Journal" @input="handleDebouncedInput" />
           <input v-model="searchForm.year" type="text" maxlength="4" placeholder="Year" />
         </div>
 
         <div v-if="queryHints.length" class="query-hints">
           <span v-for="hint in queryHints" :key="hint">{{ hint }}</span>
         </div>
+
+        <div v-if="searchHistory.length" class="search-history">
+          <span class="search-history-label">Recent:</span>
+          <button
+            v-for="hist in searchHistory.slice(0, 6)"
+            :key="hist"
+            class="search-history-chip"
+            type="button"
+            @click="applySearchFromHistory(hist)"
+          >
+            {{ hist.length > 40 ? hist.slice(0, 40) + '...' : hist }}
+          </button>
+          <button class="clear-history-btn" type="button" @click="clearSearchHistory">Clear</button>
+        </div>
       </form>
     </section>
 
     <main class="content-grid">
       <aside class="sidebar-panel">
+        <!-- Stats -->
+        <section class="sidebar-card">
+          <p class="sidebar-title">Platform stats</p>
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-number">{{ stats.totalPapers }}</div>
+              <div class="stat-label">Papers</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">{{ stats.totalUsers }}</div>
+              <div class="stat-label">Users</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">{{ stats.totalFavorites }}</div>
+              <div class="stat-label">Favorites</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">{{ stats.totalReading }}</div>
+              <div class="stat-label">Reading</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Search summary -->
         <section class="sidebar-card">
           <p class="sidebar-title">Search summary</p>
           <p class="sidebar-value">{{ summaryText }}</p>
@@ -368,6 +500,7 @@ onMounted(() => {
           </div>
         </section>
 
+        <!-- Year filter -->
         <section class="sidebar-card">
           <p class="sidebar-title">Year filter</p>
           <div class="year-filter-row">
@@ -386,16 +519,19 @@ onMounted(() => {
           </button>
         </section>
 
+        <!-- Highlighted results -->
         <section class="sidebar-card">
           <p class="sidebar-title">Highlighted results</p>
-          <ul class="highlight-list">
+          <ul v-if="featuredResults.length" class="highlight-list">
             <li v-for="paper in featuredResults" :key="paper.id">
               <strong>{{ paper.title }}</strong>
               <span>{{ paper.journal }}</span>
             </li>
           </ul>
+          <p v-else class="sidebar-note">No highlighted results yet.</p>
         </section>
 
+        <!-- Favorites -->
         <section class="sidebar-card">
           <p class="sidebar-title">My favorites</p>
           <ul v-if="favorites.length" class="shelf-list">
@@ -407,6 +543,7 @@ onMounted(() => {
           <p v-else class="sidebar-note">No favorites yet.</p>
         </section>
 
+        <!-- Reading list -->
         <section class="sidebar-card">
           <p class="sidebar-title">Reading list</p>
           <ul v-if="readingList.length" class="shelf-list">
@@ -428,20 +565,34 @@ onMounted(() => {
 
           <div class="pager-group">
             <button type="button" :disabled="meta.page === 0 || loading" @click="changePage(meta.page - 1)">
-              Previous
+              ← Previous
             </button>
+            <span v-if="meta.totalPages > 0" class="page-indicator">
+              {{ meta.page + 1 }} / {{ meta.totalPages }}
+            </span>
             <button
               type="button"
               :disabled="meta.totalPages === 0 || meta.page >= meta.totalPages - 1 || loading"
               @click="changePage(meta.page + 1)"
             >
-              Next
+              Next →
             </button>
           </div>
         </div>
 
         <p v-if="errorMessage" class="status-message error-message">{{ errorMessage }}</p>
-        <p v-else-if="loading" class="status-message">Loading papers from the server...</p>
+
+        <!-- Skeleton loading -->
+        <div v-else-if="loading" class="results-list">
+          <div v-for="n in 5" :key="n" class="skeleton-card">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line title"></div>
+            <div class="skeleton-line wide"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line wide"></div>
+          </div>
+        </div>
+
         <p v-else-if="!results.length" class="status-message">No results returned from the backend.</p>
 
         <div v-else class="results-list">
@@ -456,8 +607,37 @@ onMounted(() => {
             @toggle-reading="handleReading"
           />
         </div>
+
+        <!-- Bottom pagination -->
+        <div v-if="meta.totalPages > 1" class="results-toolbar" style="margin-top: 20px; border-top: 1px solid var(--scholar-border); padding-top: 16px;">
+          <div></div>
+          <div class="pager-group">
+            <button type="button" :disabled="meta.page === 0 || loading" @click="changePage(meta.page - 1)">
+              ← Previous
+            </button>
+            <span class="page-indicator">
+              {{ meta.page + 1 }} / {{ meta.totalPages }}
+            </span>
+            <button
+              type="button"
+              :disabled="meta.page >= meta.totalPages - 1 || loading"
+              @click="changePage(meta.page + 1)"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </section>
     </main>
+
+    <!-- Footer -->
+    <footer class="scholar-footer">
+      <span>© 2026 Academic Scholar — Building a smarter research discovery experience.</span>
+      <div class="footer-links">
+        <RouterLink to="/">Home</RouterLink>
+        <a href="https://github.com/HongyiHao-SXIT/Code_Solution_SXIT" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </footer>
 
     <LoginView
       v-if="showLogin"

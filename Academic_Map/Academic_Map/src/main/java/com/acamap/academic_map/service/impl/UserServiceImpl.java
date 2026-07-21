@@ -20,6 +20,9 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User register(User user) {
+        if (userRepository.existsByAccount(user.getAccount())) {
+            throw new IllegalArgumentException("account already exists");
+        }
         if (user.getGender() == null) {
             user.setGender(Gender.UNKNOWN);
         }

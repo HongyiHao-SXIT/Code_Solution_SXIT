@@ -11,6 +11,7 @@ const loading = ref(false)
 const errorMessage = ref('')
 const paper = ref(null)
 const recommendations = ref([])
+const recsLoading = ref(false)
 const toastMessage = ref('')
 let toastTimer = null
 
@@ -18,6 +19,11 @@ const { favoriteIds, readingIds, setSession, toggleFavorite, toggleReading, sync
 
 const isFavorite = computed(() => paper.value && favoriteIds.value.has(paper.value.id))
 const isReading = computed(() => paper.value && readingIds.value.has(paper.value.id))
+
+const yearDisplay = computed(() => {
+  if (!paper.value?.publicationDate) return 'n.d.'
+  return paper.value.publicationDate.length >= 4 ? paper.value.publicationDate.slice(0, 4) : 'n.d.'
+})
 
 async function fetchPaper() {
   loading.value = true
@@ -32,8 +38,15 @@ async function fetchPaper() {
     paper.value = await response.json()
     syncPaper(paper.value)
 
-    const recResponse = await fetch(`${apiBaseUrl}/api/papers/${route.params.id}/recommendations?size=6`)
-    recommendations.value = recResponse.ok ? await recResponse.json() : []
+    recsLoading.value = true
+    try {
+      const recResponse = await fetch(`${apiBaseUrl}/api/papers/${route.params.id}/recommendations?size=6`)
+      recommendations.value = recResponse.ok ? await recResponse.json() : []
+    } catch {
+      recommendations.value = []
+    } finally {
+      recsLoading.value = false
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load paper detail.'
     paper.value = null
@@ -47,10 +60,14 @@ function buildCitation() {
   if (!paper.value) {
     return ''
   }
-  const year = paper.value.publicationDate ? paper.value.publicationDate.slice(0, 4) : 'n.d.'
   const journal = paper.value.journal || 'Unknown Journal'
   const doi = paper.value.doi ? ` https://doi.org/${paper.value.doi}` : ''
-  return `${paper.value.authors || 'Unknown author'} (${year}). ${paper.value.title}. ${journal}.${doi}`.trim()
+  return `${paper.value.authors || 'Unknown author'} (${yearDisplay.value}). ${paper.value.title}. ${journal}.${doi}`.trim()
+}
+
+function authorList() {
+  if (!paper.value?.authors) return []
+  return paper.value.authors.split(';').map((a) => a.trim()).filter(Boolean)
 }
 
 async function copyCitation() {
@@ -107,8 +124,6 @@ function showToast(message) {
   }, 2000)
 }
 
-onMounted(fetchPaper)
-
 onMounted(() => {
   const raw = localStorage.getItem(userStorageKey)
   let userId = null
@@ -123,6 +138,8 @@ onMounted(() => {
   setSession({ apiBaseUrl, userId }).catch(() => {
     showToast('Shelf sync failed, using local data')
   })
+
+  fetchPaper()
 })
 
 watch(() => route.params.id, fetchPaper)
@@ -136,40 +153,62 @@ watch(() => route.params.id, fetchPaper)
     </header>
 
     <main class="detail-main">
-      <p v-if="loading" class="detail-status">Loading paper detail...</p>
+      <!-- Skeleton loading -->
+      <div v-if="loading" class="detail-skeleton">
+        <div class="sk-line short"></div>
+        <div class="sk-line title"></div>
+        <div class="sk-line medium"></div>
+        <div class="sk-line wide"></div>
+        <div class="sk-line"></div>
+        <div class="sk-line"></div>
+        <div class="sk-line wide"></div>
+      </div>
+
       <p v-else-if="errorMessage" class="detail-status error">{{ errorMessage }}</p>
 
       <article v-else-if="paper" class="detail-card">
         <p class="detail-url">{{ paper.url || 'https://scholar.local/paper/' + paper.id }}</p>
         <h1>{{ paper.title }}</h1>
-        <p class="detail-authors">{{ paper.authors }}</p>
+
+        <p class="detail-authors">
+          <span v-for="(author, idx) in authorList()" :key="idx">
+            <span v-if="idx > 0">; </span>
+            <span class="author-name">{{ author }}</span>
+          </span>
+        </p>
         <p class="detail-meta">{{ paper.journal || 'Unknown Journal' }} · {{ paper.publicationDate || 'Unknown date' }}</p>
 
-        <section>
+        <section class="detail-section">
           <h2>Abstract</h2>
           <p>{{ paper.abstractText }}</p>
         </section>
 
-        <section>
+        <section class="detail-section">
           <h2>Identifiers</h2>
           <p><strong>DOI:</strong> {{ paper.doi || 'Not available' }}</p>
-          <p><strong>ID:</strong> {{ paper.id }}</p>
+          <p><strong>Paper ID:</strong> {{ paper.id }}</p>
         </section>
 
         <div class="detail-actions">
           <button type="button" @click="toggleFavoriteState">
-            {{ isFavorite ? 'Remove favorite' : 'Add to favorites' }}
+            {{ isFavorite ? '★ Favorited' : '☆ Add to favorites' }}
           </button>
           <button type="button" @click="toggleReadingState">
-            {{ isReading ? 'Remove reading list' : 'Add to reading list' }}
+            {{ isReading ? '📖 In reading list' : '📘 Add to reading list' }}
           </button>
-          <button type="button" @click="copyCitation">Copy citation</button>
-          <a v-if="paper.url" :href="paper.url" target="_blank" rel="noreferrer">Open source</a>
+          <button type="button" class="action-secondary" @click="copyCitation">Copy citation</button>
+          <a v-if="paper.url" :href="paper.url" target="_blank" rel="noreferrer" class="action-link">Open source →</a>
         </div>
 
         <section class="recommendation-section">
           <h2>Recommended papers</h2>
-          <ul v-if="recommendations.length" class="recommendation-list">
+          <div v-if="recsLoading" class="rec-skeleton">
+            <div class="sk-line medium"></div>
+            <div class="sk-line"></div>
+            <div class="sk-line medium"></div>
+            <div class="sk-line"></div>
+          </div>
+          <ul v-else-if="recommendations.length" class="recommendation-list">
             <li v-for="item in recommendations" :key="item.id">
               <RouterLink :to="`/paper/${item.id}`">{{ item.title }}</RouterLink>
               <p>{{ item.authors }} · {{ item.journal }}</p>
@@ -230,6 +269,43 @@ watch(() => route.params.id, fetchPaper)
   color: #b42318;
 }
 
+/* Skeleton */
+.detail-skeleton,
+.rec-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.sk-line {
+  height: 16px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(200, 215, 235, 0.45), rgba(220, 230, 245, 0.7), rgba(200, 215, 235, 0.45));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.sk-line.title {
+  height: 32px;
+  width: 65%;
+}
+
+.sk-line.medium {
+  width: 80%;
+}
+
+.sk-line.wide {
+  width: 95%;
+}
+
+.sk-line.short {
+  width: 30%;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
 .detail-url {
   color: #188038;
   margin-bottom: 8px;
@@ -246,6 +322,11 @@ h1 {
 
 .detail-authors {
   color: #284d78;
+  line-height: 1.6;
+}
+
+.author-name {
+  white-space: nowrap;
 }
 
 .detail-meta {
@@ -253,11 +334,11 @@ h1 {
   margin-bottom: 16px;
 }
 
-section {
+.detail-section {
   margin-top: 18px;
 }
 
-h2 {
+.detail-section h2 {
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -265,7 +346,7 @@ h2 {
   margin-bottom: 8px;
 }
 
-section p {
+.detail-section p {
   color: #213b5c;
   line-height: 1.75;
 }
@@ -295,6 +376,17 @@ section p {
   color: #fff;
 }
 
+.action-secondary {
+  background: #edf4ff !important;
+  color: #1a73e8 !important;
+}
+
+.action-link {
+  background: transparent !important;
+  padding: 0;
+  color: #1a73e8 !important;
+}
+
 .recommendation-section {
   margin-top: 26px;
 }
@@ -311,6 +403,12 @@ section p {
   border-radius: 14px;
   padding: 12px 14px;
   background: #f8fbff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.recommendation-list li:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(25, 53, 89, 0.06);
 }
 
 .recommendation-list a {
